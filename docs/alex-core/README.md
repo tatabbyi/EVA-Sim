@@ -43,6 +43,15 @@ Store durable, reviewable **decision summaries, assumptions, design rationale, a
 
 **Important:** The original repo targets React/Vite website + Vercel. An Electron shell is a newly stated direction, and packaging/runtime integration decisions are not yet settled.
 
+## Agreed architecture baseline — 2026-11-14
+- **Electron only**; target **Windows, Linux and macOS** (Q01, Q02).
+- **Fully offline runtime**: required features must not depend on any live web service or online tiles (Q03). Distribution, data packaging and build pipeline remain undecided.
+- **Victor** improves and provides the 3D mesh/geometry; **Alex** implements the core, renders/integrates the mesh, and owns O₂ formulas, routing/pathfinding and Leash (Q04, Q05).
+- Technical data contracts between Alex and Victor are **NOT YET APPROVED** (Q06).
+- Changing Rachel-owned visual files requires prior coordination (Q07).
+- Motivation for Electron: greater control over local resources than an ordinary web page. **Do not promise no lag:** Electron/Chromium still has graphics, CPU, RAM, I/O and memory restrictions; profile the application on the three target OSes.
+- Traceability: D-004 through D-008 in `04-DECISIONS.md`; Q01–Q05 and Q07 confirmed in `03-OPEN-QUESTIONS.md`.
+
 ## Important identifiers
 - Primary repo: `mokachkasss/Sharkies`; upstream: `tatabbyi/Sharkies`.
 - Jezero lander: latitude 18.4447 N, longitude 77.4508 E.
