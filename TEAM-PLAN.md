@@ -7,6 +7,7 @@ Research notes are in `research/` (files 00 to 13). This plan says who does what
 ## Contents
 
 1. Team and roles
+1a. Vision: the EVA world (Rachel's whiteboard)
 2. Shared contracts (read this whole section)
 3. Rachel: look and graphics
 4. Alex: app logic, build and integration
@@ -36,6 +37,67 @@ Research notes are in `research/` (files 00 to 13). This plan says who does what
 **The product in one line:** plan a Mars spacewalk at Jezero on real NASA terrain, see how far you can go and still walk home, and the odds you make it.
 
 **MVP (must exist at 05:00):** Plan mode on real terrain, a drawn route with O₂ use, the Leash line, Survival Odds, and the Houston light delay. Everything else is extra. See section 9.
+
+---
+
+## 1a. Vision: the EVA world (Rachel's whiteboard)
+
+From the "PLAN" whiteboard, Sat 14 Nov. This is the agreed understanding so far; open questions for Rachel are at the end.
+
+**In one line:** not one fixed screen, but a **3D world on the real Jezero terrain that you walk around in first person**. What you see depends on where you are and where you look. Plan mode becomes the **Setup** screen before you head out.
+
+### Setup screen (before the EVA)
+
+- **Missions** list: pick the objectives for this EVA.
+- **Levels** panel: bars or sliders (meaning to confirm, question 1).
+- **Big topographic map**: contour lines, route and destination marker.
+
+### The EVA
+
+- First person on the real terrain: WASD to walk, **Shift to run**, mouse or headset to look around.
+- **Dangers are things in the world in your path**: obstacles, rocks, steep ground, and a **cyclone** (dust devil) moving across the terrain.
+- **Route arrows on the ground** show the pathfinding route to the current waypoint.
+- **Topology local view and highlighting**: the terrain around you is outlined and contoured, and important spots are highlighted.
+
+### The helmet HUD (like a fighter-jet helmet display)
+
+- **Follows your vision**: fixed to the helmet, moves with your head.
+- **Some parts move into view depending on head direction** (for example, look down to see more).
+- **Nothing on screen that isn't needed**: elements appear only when relevant.
+- **Top-left**: objective progress ("3/14") and the current objective ("Rock sample").
+- **Centre, only when there's a danger**: "⚠ CYCLONE", then "Switch waypoint to home? [E]". Press E to accept. **Human in the loop**: the suit suggests, the astronaut decides.
+- **Bottom (chin)**: "could be hologram", possibly a small holographic topo map of the local area.
+
+### Rules
+
+- **Too slow wipes objectives**: when behind schedule, remaining objectives are dropped and the suit tells you to move or head home.
+- The suit tracks **O₂, temperature and pressure, radiation, atmosphere (weather)**, plus objectives and pathfinding.
+
+### Demo mode
+
+- **Shift to run** loses O₂ faster; **when you stop, it refills** (question 4).
+- **Two endings**: a dying scene when O₂ runs out, and a happy case when you get home.
+
+### What changes for each person (added to each person's tasks: R4 to R7, A2, A7, N5, V11, D4, D5)
+
+| Person | Change |
+|---|---|
+| Rachel | HUD reworked to the list above. New visuals: dust devil, route arrows, objective highlights, Setup screen, both endings. Section 3 updated. |
+| Nanda | Walk mode becomes **free roam** (WASD, Shift to run, mouse or headset look), not a camera on rails. Route arrows need the current route as a list of points. |
+| Alex | Game rules: objectives list and timer ("too slow wipes objectives"), hazard events with an [E] accept prompt, O₂ drain while running, the two endings. The Setup screen is the first screen. |
+| Victor | No change to the data. Objective spots and hazards need positions on the terrain (`heightAt`). |
+| Aadila | Demo shows the dying scene and the happy case. "Human in the loop" is a strong pitch line. |
+| Everyone | **Decision needed:** does the free-roam EVA replace Plan mode as the core of the demo and the MVP? |
+
+### Open questions for Rachel
+
+1. **"Levels" on the Setup screen**: difficulty, or starting settings such as O₂ and radiation?
+2. **Chin hologram**: a mini 3D topo map of the area around you, your stats (O₂, temperature, radiation), or both?
+3. **"Moves into view depending on head direction"**: which parts? Guess: looking down brings up stats and the hologram; objectives and alerts stay visible.
+4. **"When you stop, it refills"**: does O₂ actually refill (demo simplification), or does the breathing rate just drop back to normal?
+5. **The tall column on the right of the sketch**: is it the cyclone/dust devil? Realistic dust column, or stylised to match the outlined terrain?
+6. **Overall style**: stylised line-art terrain like the drawings, or realistic Mars colours with outlines on top?
+7. **"3/14"**: 14 objectives, or litres?
 
 ---
 
@@ -173,11 +235,13 @@ eva-sim/
 
 ## 3. Rachel: look and graphics
 
-**Goal:** EVA Sim looks like one designed thing. Outlined terrain that reads at a glance, a clear Leash line, a HUD you'd trust in a helmet.
+**Goal:** EVA Sim looks like one designed thing: outlined terrain that reads at a glance, a 3D world you want to walk through, and a helmet HUD that shows only what's needed (section 1a).
 
-**Read:** research files 04 (shaders, WebXR limits), 06 (map), 08 (sun position).
+**Read:** section 1a, research files 04 (shaders, WebXR limits), 06 (map), 08 (sun position).
 
-**Gets from:** Victor (4 m grid by 11:00, 1 m tiles by about 18:00), Nanda (O₂ grid), Alex (sun direction, app shell).
+**Gets from:** Victor (4 m grid by 11:00, 1 m tiles by about 18:00), Nanda (O₂ grid, current route points), Alex (sun direction, app shell, game state: objectives, hazards, timer).
+
+**Started (Sat 11:00, first drafts, uncommitted):** `src/ui/palette.ts` (all colours), `src/terrain/material.ts` (contours, slope warning, outlines, Leash line, comms hatching), `src/terrain/beacon.ts` (light pillar marker; may become the waypoint marker or be dropped), `src/ui/HelmetHud.tsx` (from the first whiteboard photo; to rework for section 1a).
 
 ### Tasks in order
 
@@ -186,10 +250,11 @@ eva-sim/
 | R1 | **Style guide** in `docs/style.md`: palette as CSS variables (ground, outline, Leash safe/warning/limit, comms marginal/dead, HUD text), type, line widths | Sat 12:00 | Alex and Aadila can use the same colours |
 | R2 | **Terrain material v1** on the 4 m grid: contour lines (minor 5 m, major 25 m), slope warning from 20° to 25°, crease lines, silhouette rim, simple sun lighting | Sat 13:00 (check-in 1) | Terrain is readable in the browser |
 | R3 | **Leash and comms in the shader.** Sample `o2_to_home` with `uO2Left` and draw a glowing line where the value equals O₂ left minus reserve (same `fract`/`fwidth` trick as contours). Tint ground beyond it. Hatch or tint comms dead zones | Sat 18:00 | The line moves when `uO2Left` changes |
-| R4 | **HUD design**: O₂ left, distance to the Leash, Survival Odds %, comms status, Mars local time, light delay. Desktop version as HTML/CSS spec for Alex. VR version as a drawn panel for Nanda (CanvasTexture) | Sat 20:00 | Alex and Nanda can build it without asking |
-| R5 | **Plan mode map styling**: route line, Leash overlay, dead zones, waypoints, unit labels | Sat 23:00 | Map matches the 3D look |
-| R6 | **Helmet view**: visor frame, vignette, tuned line widths at eye height on 1 m tiles | Sun 01:00 | Walk mode looks finished |
-| R7 | **Visuals for Aadila**: best camera angles, 6 to 8 screenshots, title card | first set Sun 01:00, final Sun 05:30 | Aadila has what the demo needs |
+| R4 | **Helmet HUD (section 1a)**: follows the head; parts move into view depending on head direction; objectives block top-left ("3/14", current objective); hazard alert centre only when needed ("⚠ CYCLONE / Switch waypoint to home? [E]"); chin hologram. Desktop HTML/CSS for Alex, VR panel spec for Nanda (CanvasTexture) | Sat 20:00 | Alex and Nanda can build it without asking |
+| R5 | **World visuals**: route arrows on the ground, highlighted objective spots, the cyclone (dust devil) moving across the terrain, obstacles in the path highlighted | Sat 23:00 | Walking the terrain shows where to go and what's dangerous |
+| R6 | **Setup screen look**: missions list, levels panel, topographic map with route and destination (replaces Plan mode map styling) | Sun 01:00 | Setup screen matches the 3D look |
+| R7 | **Helmet view finish and endings**: visor frame, vignette, line widths at eye height on 1 m tiles; look of the dying scene and the happy case | Sun 02:00 | Walk mode and both endings look finished |
+| R8 | **Visuals for Aadila**: best camera angles, 6 to 8 screenshots, title card | first set Sun 01:00, final Sun 05:30 | Aadila has what the demo needs |
 
 ### Uniforms for `createTerrainMaterial`
 
@@ -226,12 +291,12 @@ eva-sim/
 | # | Task | Done by | Done when |
 |---|---|---|---|
 | A1 | **Repo and deploy**: Vite + React + TypeScript, `LICENSE`, README with SI note, folder layout from 2.7, Vercel project, deploy on push to `main`. Pin `three@0.187.0`, `maplibre-gl@6.18.0` | Sat 10:30 | Everyone can clone, run and see a deployed page |
-| A2 | **App shell**: Plan / Walk / Training switch, one shared state store (route, O₂ left, time, mode), loads `meta.json` | Sat 12:00 | Modes switch without reloading |
+| A2 | **App shell**: Setup screen first, then the EVA (section 1a); one shared state store (route, O₂ left, time, mode, objectives, active hazard), loads `meta.json` | Sat 12:00 | Setup → EVA → back without reloading |
 | A3 | **Plan mode map**: MapLibre with the Trek HiRISE `addProtocol` loader (research file 06), CTX layer underneath, scale bar hidden, click to add route points, show route stats from `evaluateRoute` | Sat 13:00 (check-in 1) | Real Jezero imagery on screen, route drawn |
 | A4 | **Leash on the map**: draw the O₂ grid as an image overlay coloured by `uO2Left` threshold (canvas → `image` source), refresh when O₂ changes | Sat 18:00 | Map and 3D view show the same Leash |
 | A5 | **Survival Odds worker**: 1,000 runs in a Web Worker using the distributions in research file 03, seeded RNG keyed on the route, returns success %, O₂ left at 5th/50th/95th percentile, main cause of failures | Sat 23:00 | Under 1 s for a 3 km route; same route gives same number |
 | A6 | **Houston view**: light delay for the chosen date, a message timeline (sent, reaches Earth, reply arrives), and how far the crew walks while waiting | Sat 23:00 | Delay matches 3 to 22 minutes; numbers change with date |
-| A7 | **Training mode rules**: checkpoints and tasks from `training.json`, O₂ drain from `evaluateRoute`, refill at the MOXIE station, task timers, par comparison per leg, end screen | Sun 02:00 | Can play one full round |
+| A7 | **EVA game rules (section 1a)**: objectives list and timer ("too slow wipes objectives": drop the rest and tell the player to head home); hazard events such as the cyclone with an [E] accept prompt ("Switch waypoint to home?"); O₂ drain from `evaluateRoute`, faster while running (Shift), refill when stopped in demo mode; checkpoints and tasks from `training.json`; the two endings (dying scene, happy case) | Sun 02:00 | Can play one full round and reach both endings |
 | A8 | **Integration and freeze**: merge at each check-in, fix build breaks, final build at 05:00, tag it | Sun 05:00 | Deployed URL works in a private window |
 
 ### Watch out
@@ -265,6 +330,7 @@ eva-sim/
 | V8 | **Comms viewshed**: `gdal_viewshed -om GROUND` from the lander (antenna 3 m), classify to 0/1/2 using suit antenna 2 m, resample to 2 m, write `comms.bin` | Sat 21:00 | Dead zones show behind ridges |
 | V9 | **Geologic units**: `ogr2ogr` the `GeoUnits_v1` layer from the SIM 3464 database (349 MB zip), reproject, clip, write `units.geojson` | Sat 23:00 | Units show on the map |
 | V10 | **Waypoints and traverse** clipped to the box, with local x/z | Sat 23:00 | Rover track lines up with the imagery |
+| V11 | **Ground positions for the EVA world (section 1a)**: make sure `heightAt` works anywhere in the box, so objective spots, obstacles and the cyclone sit on the ground | Sat 20:00 | Objects placed by Alex and Rachel never float or sink |
 
 ### Checks that prove the terrain is in the right place
 
@@ -300,7 +366,7 @@ eva-sim/
 | N2 | **O₂-to-home grid on the 4 m quick grid**: SciPy `dijkstra` on the reversed graph from home, 8 neighbours, 25° cap, × 1.15 terrain factor (research file 07) | Sat 13:00 | First Leash visible at check-in 1 |
 | N3 | **`evaluateRoute(points)`** in TypeScript using `heightAt`, sampled every 2 m | Sat 15:00 | Alex shows O₂ for a drawn route |
 | N4 | **O₂ grid at 2 m** on the full data, written to `grids/o2_to_home.bin` | Sat 18:00 (check-in 2) | Leash line follows real slopes |
-| N5 | **Walk mode camera**: `CatmullRomCurve3` along the route, eye height 1.7 m on `heightAt`, yaw only, speed from the cost model | Sat 18:00 | Walk along any drawn route |
+| N5 | **Walk mode, free roam (section 1a)**: WASD to walk, Shift to run, mouse look (pointer lock) or headset; eye height 1.7 m on `heightAt`; walking speed from the cost model, faster when running; slopes over 25° block you. Share the current route as points (Rachel's ground arrows) and position and heading (HUD) | Sat 18:00 | Walk anywhere on the terrain |
 | N6 | **Routes for Training and POIs**: best route home from each POI, par route per Training leg with par O₂, written to `training.json` and `pois.json` | Sat 23:00 | Alex can build Training mode |
 | N7 | **WebXR**: `VRButton`, camera in a rig group, `setAnimationLoop`, HUD as a camera-attached panel using Rachel's design. Test on the headset with `adb reverse tcp:5173 tcp:5173` | Sun 03:00 go/no-go | Walk mode works in the headset, or we drop it |
 
@@ -332,8 +398,8 @@ Nothing in the plan needs ML. Survival Odds is a Monte Carlo simulation, not ML.
 | D1 | **Kickoff notes**: record the decisions in section 11 and post them in the chat | Sat 09:45 | Everyone sees the same decisions |
 | D2 | **Local Lead questions**: local judging format, time per team at 11:30, whether local slots use the same 30 s / 7 slide limit, screen and adapter at the venue | Sat 11:00 | Answers posted |
 | D3 | **Web Filter Classification** request for the Vercel URL (Alex gives the URL) | Sat 12:00 | Requested (it can take time) |
-| D4 | **Story and script**. Hook, problem, solution, proof, difference (outline below) | Sat 16:00 | Team agrees at check-in 2 |
-| D5 | **Training task card text** for the 7 tasks in research file 10: title, one line on the real activity, the game rule, the credit | Sat 20:00 | Alex can put them in the game |
+| D4 | **Story and script**. Hook, problem, solution, proof, difference (outline below). Include the free-roam EVA from section 1a: the human-in-the-loop [E] prompt, the dying scene and the happy case | Sat 16:00 | Team agrees at check-in 2 |
+| D5 | **Objective and task card text** for the 7 tasks in research file 10: short title that fits the HUD (e.g. "Rock sample"), one line on the real activity, the game rule, the credit | Sat 20:00 | Alex can put them in the game |
 | D6 | **`docs/sources.md`**: every dataset, paper, library and licence. Everyone posts sources; Aadila collects them | ongoing, done Sun 05:00 | Ready to paste into the form |
 | D7 | **Draft submission text** in `docs/submission.md` (fields below) | Sun 01:00 | Draft reviewed by Alex |
 | D8 | **First demo cut** with footage from Rachel | Sun 03:00 | Rough version exists |
