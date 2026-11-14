@@ -1,5 +1,12 @@
 # RAW v0.1 work report
 
+## Latest independent CI evidence (2026-11-14; supersedes historical results below)
+
+- **Windows x64 — PASS:** GitHub Actions [run 43611705331](https://github.com/mokachkasss/Sharkies/actions/runs/43611705331), head `80af8c9`: native Windows build, 17 automated tests, unsigned NSIS installer, source Electron GUI smoke and packaged `win-unpacked` GUI smoke. The native input diagnostics confirm trusted W/Shift events, advancing simulation clock and movement.
+- **Linux x64 — PARTIAL:** the same run built and uploaded the AppImage and passed 17 tests. Both hosted Linux GUI smokes FAILED because WebGL2 was blocklisted in the runner; do **not** describe the CI job as passed. Codex separately reported local Linux/AppImage GUI smoke passing.
+- **Unverified:** manual Windows installation, physically disconnected offline run on either OS, and full team ML/terrain integration. No teammate source files were changed in the reviewed diff.
+- This is a **documentation-only team PR** layered over the tested engine code. The report sections below retain their original dated snapshots, including earlier statements such as "Windows NOT TESTED" and "no CI links"; those statements described earlier pre-push phases and are **no longer the current status**.
+
 The opening results and hashes record the historical Phase II baseline. Current
 review-fix results are appended under Review Fix 01 below.
 
