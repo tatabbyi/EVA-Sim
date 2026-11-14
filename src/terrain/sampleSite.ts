@@ -76,7 +76,7 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
   const keep = <T extends { dispose(): void }>(x: T) => (disposables.push(x), x);
 
   // Beacon so the stop can be seen from far away
-  const beacon = createWaypointBeacon({ color: palette.objective, height: 14, radius: 0.2 });
+  const beacon = createWaypointBeacon();
   beacon.group.position.copy(ground);
   group.add(beacon.group);
 
@@ -135,7 +135,7 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
     { grip: new THREE.Vector3(-0.1, 0.34, 0.01), palm: new THREE.Vector3(0, 0.34, 0) },
   ];
   // Elbows, in camera space: low and to the sides, so only the forearms reach into view.
-  const ELBOWS = [new THREE.Vector3(0.27, -0.44, -0.3), new THREE.Vector3(-0.27, -0.44, -0.3)];
+  const ELBOWS = [new THREE.Vector3(0.24, -0.62, -0.1), new THREE.Vector3(-0.24, -0.62, -0.1)]; // low, close to the body
   const elbow = new THREE.Vector3(), gripAt = new THREE.Vector3(), palmAt = new THREE.Vector3();
   const placeArms = (camera: THREE.Camera) => {
     camera.updateMatrixWorld();
@@ -192,7 +192,10 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
   let state: SampleState = 'idle';
   let elapsed = 0;
   let progress = 0;
-  const raised = rockTop.clone().add(new THREE.Vector3(0, 0.2, 0));
+  const drillEnd = rockTop.clone().add(new THREE.Vector3(0, -0.05, 0));
+  // Where you hold the corer between steps, in camera space: in front of your chest, below eye level.
+  const HOLD = new THREE.Vector3(0.02, -0.62, -0.5);
+  const holdAt = new THREE.Vector3();
   const stowTarget = new THREE.Vector3();
   const offsetFromEye = new THREE.Vector3(0.18, -0.6, -0.45); // just below and in front of the visor
 
@@ -229,10 +232,12 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
         }
         state = phase;
         tool.visible = phase !== 'done';
+        camera.updateMatrixWorld();
+        holdAt.copy(HOLD).applyMatrix4(camera.matrixWorld);
         tool.scale.setScalar(1);
 
         if (phase === 'lowering') {
-          tool.position.copy(rockTop).add(new THREE.Vector3(0, 0.15 * (1 - ease(local)), 0)); // held low in front of you, lowered onto the rock
+          tool.position.lerpVectors(holdAt, rockTop, ease(local)); // from in front of your chest, reach down onto the rock
           lightMat.color.set(palette.warning);
         } else if (phase === 'drilling') {
           tool.position.copy(rockTop);
@@ -245,12 +250,12 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
           emitDust(dt);
         } else if (phase === 'raising') {
           core.visible = true;
-          tool.position.copy(rockTop).add(new THREE.Vector3(0, 0.2 * ease(local) - 0.05 * (1 - local), 0));
+          tool.position.lerpVectors(drillEnd, holdAt, ease(local)); // bring the core back up to your chest
           bit.rotation.y += dt * 12 * (1 - local);
           lightMat.color.set(palette.ok);
         } else if (phase === 'stowing') {
           stowTarget.copy(offsetFromEye).applyMatrix4(camera.matrixWorld);
-          tool.position.lerpVectors(raised, stowTarget, ease(local));
+          tool.position.lerpVectors(holdAt, stowTarget, ease(local));
         } else {
           // done: sample sealed and stowed
           tool.visible = false;

@@ -10,6 +10,8 @@ export interface VisorLens {
   /** Renders the scene through the dome. Use instead of renderer.render(scene, camera). */
   render(scene: THREE.Scene, camera: THREE.Camera): void;
   uniforms: { uK: { value: number }; uCA: { value: number } };
+  /** Where a point projected by the camera (NDC, -1..1) ends up on screen after the dome lens. */
+  toScreen(ndcX: number, ndcY: number): { x: number; y: number };
   dispose(): void;
 }
 
@@ -75,6 +77,19 @@ export function createVisorLens(renderer: THREE.WebGLRenderer, opts: { strength?
 
   return {
     uniforms,
+    toScreen(ndcX, ndcY) {
+      // The lens samples p = q (1 + k|q|²) / (1 + k rMax²); solve for the screen point q by fixed-point iteration.
+      const a = uniforms.uAspect.value, k = uniforms.uK.value;
+      const rMax2 = 0.25 * (a * a + 1);
+      const px = ndcX * 0.5 * a, py = ndcY * 0.5;
+      let qx = px, qy = py;
+      for (let i = 0; i < 6; i++) {
+        const f = (1 + k * rMax2) / (1 + k * (qx * qx + qy * qy));
+        qx = px * f;
+        qy = py * f;
+      }
+      return { x: qx / (0.5 * a), y: qy / 0.5 };
+    },
     render(scene, camera) {
       // Follows window resizes and the adaptive resolution automatically.
       // Render a little larger than the screen: the curve magnifies the centre by (1 + k * rMax²), so supersampling

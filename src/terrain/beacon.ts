@@ -33,9 +33,9 @@ void main() {
 `;
 
 export function createWaypointBeacon(opts: { height?: number; radius?: number; color?: string } = {}): Beacon {
-  const height = opts.height ?? 60;
-  const radius = opts.radius ?? 0.8;
-  const uniforms = { uColor: { value: new THREE.Color(opts.color ?? palette.waypoint) }, uTime: { value: 0 } };
+  const height = opts.height ?? 30;
+  const radius = opts.radius ?? 0.05; // a thin AR marker line, not a light pillar
+  const uniforms = { uColor: { value: new THREE.Color(opts.color ?? palette.ar) }, uTime: { value: 0 } };
 
   const beamGeo = new THREE.CylinderGeometry(radius, radius, height, 24, 1, true);
   beamGeo.translate(0, height / 2, 0);
@@ -49,7 +49,7 @@ export function createWaypointBeacon(opts: { height?: number; radius?: number; c
     side: THREE.DoubleSide,
   });
 
-  const ringGeo = new THREE.RingGeometry(radius * 2.2, radius * 2.8, 48);
+  const ringGeo = new THREE.RingGeometry(0.55, 0.6, 64);
   ringGeo.rotateX(-Math.PI / 2);
   const ringMat = new THREE.MeshBasicMaterial({
     color: uniforms.uColor.value,

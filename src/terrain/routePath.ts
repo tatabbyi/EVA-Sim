@@ -1,16 +1,14 @@
 // Written with AI assistance (Claude).
-// Owner: Rachel. The path you can follow: solid 3D yellow chevrons hovering above the terrain, spaced out along the
-// route, gliding slowly forward and bobbing, each with a soft shadow on the ground. Arrows you've already passed
-// disappear (setProgress), so the path always shows the way ahead. For the way home, build a new path from where you stand.
-// Points come from Nanda's routes (local x/z, metres).
+// Owner: Rachel. The path to follow: solid 3D chevrons with a little thickness, raised just above the ground and
+// casting a shadow, in warm yellow so they stand apart from the blue contour lines on the ground. Spaced out, gliding
+// slowly forward, fading out as you reach them; arrows you've passed are gone (setProgress). For the way home, build a
+// new path from where you stand. Points: Nanda's routes (local x/z, m). The glass version is src/ui/glassPath.ts.
 
 import * as THREE from 'three';
 import type { XZ } from '../shared/coords';
-import { palette } from '../ui/palette';
 
 export interface RoutePath {
   group: THREE.Group;
-  /** Total length in metres. */
   length: number;
   /** Hides the arrows behind the walker: pass the walker's position each frame. */
   setProgress(x: number, z: number): void;
@@ -18,16 +16,14 @@ export interface RoutePath {
   dispose(): void;
 }
 
-/** A chevron pointing along +X, lying flat in the XZ plane, centred on the origin. */
-function chevronShape(): THREE.Shape {
-  const s = new THREE.Shape();
-  s.moveTo(0.25, 0);
-  s.lineTo(-0.25, 0.42);
-  s.lineTo(-0.43, 0.42);
-  s.lineTo(0.07, 0);
-  s.lineTo(-0.43, -0.42);
-  s.lineTo(-0.25, -0.42);
-  s.closePath();
+/** A chevron pointing along +X in its own plane, centred on the origin. inset > 0 makes an outline (shape with a hole). */
+function chevron(inset = 0): THREE.Shape {
+  const pts: [number, number][] = [[0.25, 0], [-0.25, 0.42], [-0.43, 0.42], [0.07, 0], [-0.43, -0.42], [-0.25, -0.42]];
+  const s = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
+  if (inset > 0) {
+    const k = 1 - inset;
+    s.holes.push(new THREE.Path(pts.map(([x, y]) => new THREE.Vector2(x * k - 0.03, y * k))));
+  }
   return s;
 }
 
@@ -36,80 +32,53 @@ export function createRoutePath(
   heightAt: (x: number, z: number) => number,
   opts: { spacing?: number; color?: string; hover?: number; speed?: number } = {},
 ): RoutePath {
-  const spacing = opts.spacing ?? 6; // metres between arrows
-  const hover = opts.hover ?? 0.35; // metres above the ground
-  const speed = opts.speed ?? 0.7; // m/s the arrows glide forward
+  const spacing = opts.spacing ?? 6;
+  const hover = opts.hover ?? 0.12; // raised a little: clearly off the ground, not floating
+  const speed = opts.speed ?? 0.7;
   const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(p.x, 0, p.z)), false, 'centripetal');
   const length = curve.getLength();
 
-  // Lookup table every 25 cm: fast position + direction at any distance along the path.
   const steps = Math.max(2, Math.ceil(length * 4));
   const table = curve.getSpacedPoints(steps);
-  const sample = (s: number, outPos: THREE.Vector3) => {
+  const sample = (s: number, out: THREE.Vector3) => {
     const f = Math.min(steps - 1, Math.max(0, (s / length) * steps));
     const i = Math.floor(f);
-    outPos.lerpVectors(table[i], table[i + 1], f - i);
+    out.lerpVectors(table[i], table[i + 1], f - i);
     const a = table[Math.max(0, i - 1)], b = table[Math.min(steps, i + 2)];
-    return Math.atan2(-(b.z - a.z), b.x - a.x); // yaw that turns +X towards the direction of travel
+    return Math.atan2(-(b.z - a.z), b.x - a.x);
   };
 
-  const arrowGeo = new THREE.ExtrudeGeometry(chevronShape(), {
-    depth: 0.06,
-    bevelEnabled: true,
-    bevelThickness: 0.018,
-    bevelSize: 0.018,
-    bevelSegments: 2,
-  });
-  arrowGeo.rotateX(-Math.PI / 2); // lie flat, thickness pointing up
-  arrowGeo.center();
-  const shadowGeo = new THREE.ShapeGeometry(chevronShape());
-  shadowGeo.rotateX(-Math.PI / 2);
-
-  const color = new THREE.Color(opts.color ?? palette.objective);
-  const arrowMat = new THREE.MeshStandardMaterial({
-    color,
-    emissive: color,
-    emissiveIntensity: 0.35,
-    roughness: 0.35,
-    metalness: 0.15,
-  });
-  const shadowMat = new THREE.MeshBasicMaterial({
-    color: '#000000',
-    transparent: true,
-    opacity: 0.32,
-    depthWrite: false,
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
+  // A chevron 5 cm thick with softly rounded edges, lying flat.
+  const geo = new THREE.ExtrudeGeometry(chevron(), { depth: 0.05, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.012, bevelSegments: 2, curveSegments: 1 });
+  geo.rotateX(-Math.PI / 2);
 
   const count = Math.floor(length / spacing) + 1;
-
-  // Per-arrow fade (0 to 1): arrows fade out as you reach them instead of vanishing.
   const fade = new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1);
-  arrowGeo.setAttribute('aFade', fade);
-  shadowGeo.setAttribute('aFade', fade);
-  const fadeable = (mat: THREE.Material) => {
-    mat.transparent = true;
-    mat.onBeforeCompile = (shader) => {
-      shader.vertexShader = 'attribute float aFade;\nvarying float vFade;\n' +
-        shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFade = aFade;');
-      shader.fragmentShader = 'varying float vFade;\n' +
-        shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= vFade;');
-    };
+  geo.setAttribute('aFade', fade);
+  const warm = opts.color ?? '#ffc93c'; // warm yellow: stands apart from the blue contours and the ground colours
+  const material = new THREE.MeshStandardMaterial({
+    color: warm,
+    emissive: warm,
+    emissiveIntensity: 0.45, // a soft glow so they read in shadow too
+    roughness: 0.45,
+    metalness: 0.05,
+    transparent: true,
+  });
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = 'attribute float aFade;\nvarying float vFade;\n' +
+      shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFade = aFade;');
+    shader.fragmentShader = 'varying float vFade;\n' +
+      shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= vFade;');
   };
-  fadeable(arrowMat);
-  fadeable(shadowMat);
-  const arrows = new THREE.InstancedMesh(arrowGeo, arrowMat, count);
-  const shadows = new THREE.InstancedMesh(shadowGeo, shadowMat, count);
-  arrows.frustumCulled = shadows.frustumCulled = false;
-  shadows.renderOrder = 1;
+  const arrows = new THREE.InstancedMesh(geo, material, count);
+  arrows.frustumCulled = false;
+  arrows.castShadow = true; // the shadow underneath shows they stand off the ground
 
   const group = new THREE.Group();
   group.name = 'route-path';
-  group.add(shadows, arrows);
+  group.add(arrows);
 
-  let walked = -10; // metres along the path already walked
+  let walked = -10;
   const walker = new THREE.Vector3(Infinity, 0, Infinity);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
@@ -132,42 +101,36 @@ export function createRoutePath(
           bestI = i;
         }
       }
-      if (best < 15 * 15) walked = (bestI / steps) * length; // ignored if you've wandered off the path
+      if (best < 15 * 15) walked = (bestI / steps) * length;
     },
     update(t) {
       const glide = (t * speed) % spacing;
       for (let i = 0; i < count; i++) {
         const s = i * spacing + glide;
-        // Fades from 6 m before you reach it down to nothing as you pass over it.
+        // fades from 6 m before you reach it down to nothing as you pass over it, and out in the distance
         const near = Math.min(1, Math.max(0, (s - walked) / 6));
-        const f = near * near * (3 - 2 * near);
+        const yaw = sample(Math.min(s, length), pos);
+        const dist = Math.hypot(pos.x - walker.x, pos.z - walker.z);
+        const far = 1 - Math.min(1, Math.max(0, (dist - 120) / 80));
+        const f = near * near * (3 - 2 * near) * far;
         if (s > length || f < 0.01) {
           arrows.setMatrixAt(i, hidden);
-          shadows.setMatrixAt(i, hidden);
           continue;
         }
-        const yaw = sample(s, pos);
-        const ground = heightAt(pos.x, pos.z);
-        const dist = Math.hypot(pos.x - walker.x, pos.z - walker.z);
-        // Grow in from nothing near the far end of view, so they don't pop.
-        const k = dist > 260 ? 0 : 1 - Math.max(0, (dist - 200) / 60);
+        pos.y = heightAt(pos.x, pos.z) + hover + Math.sin(t * 1.6 + i * 0.9) * 0.015;
         q.setFromAxisAngle(up, yaw);
-        scale.setScalar(k * (0.75 + 0.25 * f));
+        scale.setScalar(0.85 + 0.15 * f);
+        m.compose(pos, q, scale);
+        arrows.setMatrixAt(i, m);
         fade.setX(i, f);
-        pos.y = ground + hover + Math.sin(t * 2 + i * 0.9) * 0.05;
-        arrows.setMatrixAt(i, m.compose(pos, q, scale));
-        pos.y = ground + 0.03;
-        shadows.setMatrixAt(i, m.compose(pos, q, scale));
       }
       arrows.instanceMatrix.needsUpdate = true;
       fade.needsUpdate = true;
-      shadows.instanceMatrix.needsUpdate = true;
     },
     dispose() {
-      arrowGeo.dispose();
-      shadowGeo.dispose();
-      arrowMat.dispose();
-      shadowMat.dispose();
+      geo.dispose();
+      material.dispose();
+      arrows.dispose();
     },
   };
 }

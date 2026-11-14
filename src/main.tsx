@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './app/App';
 import { Preview } from './dev/Preview';
 import { applyPaletteToCss } from './ui/palette';
+import { ErrorScreen, StartupError, webglProblem } from './ui/StartupError';
 
 applyPaletteToCss();
 document.body.style.margin = '0';
@@ -18,7 +19,11 @@ function Root() {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
-  return hash === '#preview' ? <Preview /> : <App />;
+  // No 3D graphics in this browser (e.g. WebGL off in LibreWolf): explain how to fix it instead of a black screen.
+  const [problem] = useState(webglProblem);
+  if (problem) return <StartupError title="Can’t start the 3D view" detail={problem} webgl />;
+  // A crash while starting shows what went wrong (keyed by page, so switching pages tries again).
+  return <ErrorScreen key={hash}>{hash === '#preview' ? <Preview /> : <App />}</ErrorScreen>;
 }
 
 createRoot(document.getElementById('root')!).render(

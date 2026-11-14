@@ -24,6 +24,22 @@
   overflow: visible;
 }
 
+/* The 3D chin hardware (mic, valves, cables): its own transparent canvas, in front of the seal and fabric.
+   It reaches past the helmet layer at the sides and bottom, so looking down never shows where it ends. */
+.hud-interior {
+  position: absolute;
+  top: 0;
+  left: -15%;
+  right: -15%;
+  bottom: -35%;
+  pointer-events: none;
+}
+.hud-interior canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 /* Effects on the inside of the glass, clipped to the visor shape */
 .hud-glass-fx {
   position: absolute;
@@ -41,27 +57,48 @@
     rgba(255, 255, 255, 0.035) 52%, transparent 57%);
   will-change: transform;
 }
+/* Visor fog: when you overwork the suit (running too long), heat and moisture outrun the air flow that keeps the
+   glass clear. Condensation grows outwards in a round patch from in front of your mouth, like breath on a window,
+   blurs the view behind it, and shrinks back when you slow down.
+   Preview sets --fog from 0 (clear) to 1 (fogged) and hides the layer when it's clear. */
+.hud-fog {
+  --fog: 0;
+  position: absolute;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+  /* fine droplets, a few denser patches (no tiling, so no seams), and an even milky haze, thicker low down */
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.94 0 0 0 0 0.96 0 0 0 0 0.98 1.1 0 0 0 -0.5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E") 0 0 / 256px 256px,
+    radial-gradient(circle 16vmax at 44% 66%, rgba(240, 244, 248, 0.26), transparent),
+    radial-gradient(circle 13vmax at 57% 57%, rgba(240, 244, 248, 0.2), transparent),
+    radial-gradient(circle at 50% 62%, rgba(232, 237, 242, 0.64), rgba(232, 237, 242, 0.34) 55vmax);
+  opacity: calc(0.35 + var(--fog) * 0.65);
+  /* fogged glass softens, pales and greys what's behind it */
+  backdrop-filter: blur(calc(var(--fog) * 14px)) saturate(calc(1 - var(--fog) * 0.45)) brightness(calc(1 + var(--fog) * 0.08));
+  /* a round patch centred in front of the mouth, growing with --fog, with a soft edge */
+  -webkit-mask-image: radial-gradient(circle at 50% 62%, #000 calc(var(--fog) * 62vmax - 10vmax), transparent calc(var(--fog) * 68vmax));
+  mask-image: radial-gradient(circle at 50% 62%, #000 calc(var(--fog) * 62vmax - 10vmax), transparent calc(var(--fog) * 68vmax));
+}
+
 /* Breath: a small patch of fog low on the visor, coming and going */
 .hud-breath {
   position: absolute;
-  left: 41%;
-  right: 41%;
-  bottom: 9%;
-  height: 11%;
-  background: radial-gradient(ellipse 50% 50% at 50% 70%, rgba(230, 238, 245, 0.18), rgba(230, 238, 245, 0) 70%);
+  /* same spot the visor fog grows from: in front of the mouth */
+  left: calc(50% - 7vmax);
+  top: calc(62% - 6vmax);
+  width: 14vmax;
+  height: 12vmax;
+  background: radial-gradient(closest-side, rgba(230, 238, 245, 0.2), rgba(230, 238, 245, 0) 100%);
   filter: blur(6px);
-  animation: hud-breathe 4.2s ease-in-out infinite;
-}
-@keyframes hud-breathe {
-  0%, 100% { opacity: 0; transform: scale(0.85); }
-  35% { opacity: 0.8; transform: scale(1); }
-  60% { opacity: 0.35; transform: scale(1.05); }
+  opacity: 0; /* Preview fades it in and out on each exhale, in time with the breathing sound */
 }
 
 /* ---------- Light projected on the glass ---------- */
 .hud-on-glass text {
-  fill: var(--c-hud);
-  filter: drop-shadow(0 0 3px rgba(120, 180, 255, 0.55)) drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
+  fill: #e6f7ff;
+  font-weight: 400;
+  filter: drop-shadow(0 0 3px rgba(111, 227, 255, 0.45)) drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
 }
 
 /* Objectives */
@@ -178,6 +215,84 @@
 
 @media (prefers-reduced-motion: reduce) {
   .hud-alert--danger .hud-alert-title,
-  .hud-bar--danger .hud-bar-fill,
-  .hud-breath { animation: none; opacity: 0.3; }
+  .hud-bar--danger .hud-bar-fill { animation: none; opacity: 0.3; }
 }
+
+/* ---------- Professional AR styling (overrides) ---------- */
+.hud-obj-label {
+  fill: var(--c-ar) !important;
+  opacity: 0.8;
+  letter-spacing: 0.3em;
+  font-weight: 500;
+}
+.hud-obj-count,
+.hud-obj-time {
+  font-weight: 500 !important;
+}
+.hud-obj-current {
+  fill: var(--c-ar) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.08em;
+}
+.hud-alert-title {
+  font-weight: 600 !important;
+  letter-spacing: 0.32em !important;
+}
+.hud-alert--info .hud-alert-title {
+  fill: var(--c-ar) !important;
+}
+
+/* Projected objective marker: registered to the world, not the helmet */
+.hud-target {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+  pointer-events: none;
+}
+.hud-target-mark {
+  position: absolute;
+  left: -9px;
+  top: -9px;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--c-ar);
+  transform: rotate(45deg);
+  box-shadow: 0 0 8px rgba(111, 227, 255, 0.6), inset 0 0 6px rgba(111, 227, 255, 0.35);
+}
+.hud-target-label {
+  position: absolute;
+  left: 0;
+  top: 16px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  color: #e6f7ff;
+  text-shadow: 0 0 6px rgba(111, 227, 255, 0.7), 0 0 1px #000;
+}
+
+/* Objective list: one line per objective with its own timer */
+.hud-obj-item {
+  font-size: 0.86em;
+  letter-spacing: 0.05em;
+}
+.hud-obj-item--current {
+  fill: var(--c-ar) !important;
+}
+.hud-obj-item--done {
+  opacity: 0.45;
+}
+.hud-obj-item--todo {
+  opacity: 0.72;
+}
+.hud-obj-mark {
+  fill: var(--c-ar);
+}
+.hud-obj-item-time {
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+.hud-obj-item .hud-obj-time--warning { fill: var(--c-warning) !important; }
+.hud-obj-item .hud-obj-time--danger { fill: var(--c-danger) !important; }

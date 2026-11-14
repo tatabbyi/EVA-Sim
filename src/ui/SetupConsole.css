@@ -1,0 +1,355 @@
+/* Written with AI assistance (Claude). Owner: Rachel. The Setup screen on the base console.
+   Sized in container units (cqw), so it scales with the console screen it sits on. */
+
+.setup {
+  container-type: size;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #dff4ff;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(111, 227, 255, 0.08), transparent 70%),
+    linear-gradient(180deg, #08121b, #050b11);
+  user-select: none;
+}
+/* faint scanlines and edge glow: it is a screen */
+.setup::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 3px);
+  box-shadow: inset 0 0 3cqw rgba(111, 227, 255, 0.12);
+}
+
+.setup-head {
+  display: flex;
+  align-items: baseline;
+  gap: 1.6cqw;
+  padding: 1.3cqw 2cqw 1cqw;
+  border-bottom: 1px solid rgba(111, 227, 255, 0.25);
+}
+.setup-title {
+  font-size: 2.1cqw;
+  font-weight: 600;
+  letter-spacing: 0.4em;
+  color: var(--c-ar, #6fe3ff);
+  text-shadow: 0 0 1cqw rgba(111, 227, 255, 0.5);
+}
+.setup-close {
+  margin-left: auto;
+  padding: 0.35cqw 0.8cqw;
+  border: 1px solid rgba(111, 227, 255, 0.4);
+  border-radius: 0.4cqw;
+  background: transparent;
+  color: #dff4ff;
+  font: inherit;
+  font-size: 0.9cqw;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+}
+.setup-close:hover {
+  background: rgba(111, 227, 255, 0.12);
+}
+.setup-close:focus-visible {
+  outline: 2px solid var(--c-ar, #6fe3ff);
+}
+.setup-sub {
+  font-size: 1cqw;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.setup-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 2fr; /* missions and levels a third, map two thirds */
+  gap: 1.4cqw;
+  padding: 1.4cqw 2cqw 1.8cqw;
+}
+
+/* ---------- left: missions and levels ---------- */
+.setup-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 1.2cqw;
+  border: 1px solid rgba(111, 227, 255, 0.22);
+  border-radius: 0.8cqw;
+  background: rgba(111, 227, 255, 0.03);
+}
+.setup-h {
+  margin: 0 0 0.7cqw;
+  font-size: 1.05cqw;
+  font-weight: 500;
+  letter-spacing: 0.3em;
+  color: var(--c-ar, #6fe3ff);
+}
+.setup-missions {
+  list-style: none;
+  margin: 0 0 1.4cqw;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45cqw;
+}
+.setup-mission-btn {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1.4cqw 1.6cqw 1fr 1.4cqw;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 0.5cqw;
+  padding: 0.55cqw 0.7cqw;
+  border: 1px solid rgba(111, 227, 255, 0.15);
+  border-radius: 0.5cqw;
+  background: rgba(8, 20, 30, 0.6);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.setup-mission-btn:hover,
+.setup-mission.is-hover .setup-mission-btn {
+  border-color: rgba(111, 227, 255, 0.6);
+  background: rgba(111, 227, 255, 0.08);
+}
+.setup-mission-btn:focus-visible {
+  outline: 2px solid var(--c-ar, #6fe3ff);
+  outline-offset: 1px;
+}
+.setup-mission.is-chosen .setup-mission-btn {
+  border-color: rgba(111, 227, 255, 0.45);
+  background: rgba(111, 227, 255, 0.1);
+}
+.setup-mission.is-done .setup-mission-btn {
+  opacity: 0.45;
+  cursor: default;
+}
+.setup-check {
+  font-size: 1.1cqw;
+  color: var(--c-ar, #6fe3ff);
+}
+.setup-mission-num {
+  font-size: 0.95cqw;
+  opacity: 0.6;
+}
+.setup-mission-title {
+  font-size: 1.15cqw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.setup-mission-arrow {
+  font-size: 1.1cqw;
+  opacity: 0.5;
+  text-align: right;
+}
+.setup-mission-meta {
+  grid-column: 3 / 5;
+  font-size: 0.92cqw;
+  opacity: 0.65;
+  letter-spacing: 0.04em;
+}
+
+.setup-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75cqw;
+}
+.setup-level-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.3cqw;
+}
+.setup-level-label {
+  font-size: 0.85cqw;
+  letter-spacing: 0.2em;
+  opacity: 0.75;
+}
+.setup-level-value {
+  font-size: 1.1cqw;
+  font-weight: 600;
+}
+.setup-level-track {
+  display: flex;
+  height: 0.75cqw;
+  border-radius: 0.4cqw;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(111, 227, 255, 0.18);
+}
+.setup-level-fill {
+  height: 100%;
+}
+.setup-level-fill.is-need { background: linear-gradient(90deg, #0a84ff, #5ac8fa); box-shadow: 0 0 0.8cqw rgba(10, 132, 255, 0.6); }
+.setup-level-fill.is-reserve { background: repeating-linear-gradient(135deg, rgba(255, 214, 10, 0.75) 0 0.35cqw, rgba(255, 214, 10, 0.35) 0.35cqw 0.7cqw); }
+.setup-level-fill.is-time { background: linear-gradient(90deg, #6fe3ff, #b6f1ff); }
+.setup-level-fill.is-store { background: linear-gradient(90deg, #0a84ff, #64d2ff); }
+.setup-level-fill.is-returned { background: #30d158; }
+.setup-level-fill.is-isru { background: repeating-linear-gradient(135deg, #30d158 0 0.35cqw, rgba(48, 209, 88, 0.45) 0.35cqw 0.7cqw); }
+.setup-level-note {
+  margin-top: 0.25cqw;
+  font-size: 0.8cqw;
+  opacity: 0.55;
+}
+.setup-level--warning .setup-level-value { color: var(--c-warning, #ffd60a); }
+.setup-level--danger .setup-level-value { color: var(--c-danger, #ff453a); }
+.setup-why.is-ready {
+  color: #30d158;
+  opacity: 1;
+}
+.setup-wait,
+.setup-why {
+  margin: 0.6cqw 0 0;
+  font-size: 0.9cqw;
+  opacity: 0.7;
+}
+
+.setup-begin {
+  margin-top: auto;
+  padding: 0.9cqw 1cqw;
+  border: 1px solid var(--c-ar, #6fe3ff);
+  border-radius: 0.6cqw;
+  background: linear-gradient(180deg, rgba(111, 227, 255, 0.28), rgba(111, 227, 255, 0.12));
+  color: #ffffff;
+  font: inherit;
+  font-size: 1.3cqw;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  cursor: pointer;
+  box-shadow: 0 0 1.4cqw rgba(111, 227, 255, 0.35);
+}
+.setup-begin:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(111, 227, 255, 0.45), rgba(111, 227, 255, 0.2));
+}
+.setup-begin:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+.setup-begin:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ---------- right: the map ---------- */
+.setup-map {
+  position: relative;
+  min-height: 0;
+  border: 1px solid rgba(111, 227, 255, 0.3);
+  border-radius: 0.8cqw;
+  overflow: hidden;
+  background: #120c09;
+}
+.setup-map-canvas,
+.setup-map-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.setup-map-canvas {
+  object-fit: cover; /* crops exactly like the SVG's "slice", so the two line up */
+}
+.setup-route-all {
+  fill: none;
+  stroke: rgba(223, 244, 255, 0.35);
+  stroke-width: 2;
+  stroke-dasharray: 6 6;
+}
+.setup-route-plan {
+  fill: none;
+  stroke: #6fe3ff;
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.setup-marker {
+  cursor: pointer;
+}
+.setup-marker-dot {
+  fill: rgba(5, 11, 17, 0.75);
+  stroke: rgba(223, 244, 255, 0.55);
+  stroke-width: 2;
+}
+.setup-marker.is-chosen .setup-marker-dot {
+  fill: rgba(10, 60, 80, 0.9);
+  stroke: #6fe3ff;
+  stroke-width: 3;
+}
+.setup-marker.is-done .setup-marker-dot {
+  stroke: #30d158;
+}
+.setup-marker-halo {
+  fill: rgba(111, 227, 255, 0.15);
+  stroke: #6fe3ff;
+  stroke-width: 1.5;
+  animation: setup-pulse 1.4s ease-out infinite;
+}
+@keyframes setup-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.25; }
+}
+.setup-marker-num {
+  fill: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+.setup-marker-label,
+.setup-base text,
+.setup-scale text,
+.setup-north text {
+  fill: #ffffff;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.75);
+  stroke-width: 3px;
+}
+.setup-base rect {
+  fill: rgba(255, 255, 255, 0.92);
+  stroke: #6fe3ff;
+  stroke-width: 2;
+}
+.setup-scale path,
+.setup-north path {
+  fill: #ffffff;
+  stroke: #ffffff;
+  stroke-width: 2;
+}
+.setup-scale text,
+.setup-north text {
+  text-anchor: middle;
+  font-size: 13px;
+}
+.setup-map-wait {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 1.1cqw;
+  opacity: 0.7;
+}
+.setup-map-legend {
+  position: absolute;
+  right: 1cqw;
+  bottom: 0.8cqw;
+  font-size: 0.8cqw;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+  text-shadow: 0 0 4px #000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setup-marker-halo { animation: none; }
+}

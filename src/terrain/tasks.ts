@@ -106,7 +106,7 @@ export function createLaserTask(ground: THREE.Vector3, seed = 3): TaskSite {
   group.add(boulder);
   const target = boulder.position.clone().add(new THREE.Vector3(0, 0.35, 0)); // aim point on the boulder face
 
-  const beacon = createWaypointBeacon({ color: palette.objective, height: 14, radius: 0.2 });
+  const beacon = createWaypointBeacon();
   beacon.group.position.copy(ground);
   group.add(beacon.group);
   disposables.push(beacon);
@@ -220,7 +220,7 @@ export function createPanoramaTask(ground: THREE.Vector3): TaskSite {
   const flag = new THREE.Mesh(keep(new THREE.PlaneGeometry(0.3, 0.18)), keep(new THREE.MeshStandardMaterial({ color: palette.waypoint, side: THREE.DoubleSide })));
   flag.position.copy(pole.position).add(new THREE.Vector3(0.16, 0.7, 0));
   group.add(pole, flag);
-  const beacon = createWaypointBeacon({ color: palette.objective, height: 14, radius: 0.2 });
+  const beacon = createWaypointBeacon();
   beacon.group.position.copy(ground);
   group.add(beacon.group);
   disposables.push(beacon);
