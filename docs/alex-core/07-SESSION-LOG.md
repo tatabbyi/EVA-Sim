@@ -37,3 +37,21 @@ All Q01–Q36 are pending. Respond using IDs; questions that don't concern Alex 
 
 ### Next
 Collect user answers, update decision register and open-questions statuses, then process their implementation blocks.
+
+## 2026-11-14 — answers Q01–Q07 recorded (architecture and responsibility)
+**User answers (verbatim content preserved by meaning):**
+- Q01: "Только Electron".
+- Q02: "Windows + Linux + macOS".
+- Q03: "Полный офлайн".
+- Q04: "3D mesh / геометрию" — Victor's model deliverable.
+- Q05: "Я" — Alex owns O₂ physics/calculation and route/Leash tasks asked in Q05.
+- Q06: "Нужно согласовать" — OPEN; finalize with Victor before changing shared spatial/data formats.
+- Q07: "Только после согласования" — changes to Rachel-owned visuals must be approved.
+
+**User's reason for Electron:** "Electron - основа. Я решился на уход от веба по тому что в электроне нет ограничения веб ресурсов как это есть в браузере, мы не сжаты по ним, ничего не будет лагать".
+
+**Record interpretation (not a user claim):** Electron allows greater desktop integration and local file access, but is Chromium-based and still constrained by GPU/WebGL, memory and CPU; lag-free performance must be measured, not assumed.
+
+**Documentation changes:** confirmed D-004 (Electron-only cross-platform), D-005 (offline), D-006 (Victor mesh), D-007 (Alex formula/routing/Leash), D-008 (Rachel coordination). Pending Q06. Updated `README.md`, `01-PROJECT-CONTEXT.md`, `02-SCIENCE-AND-CONTRACTS.md`, `03-OPEN-QUESTIONS.md`, `04-DECISIONS.md`, `06-CODEX-HANDOFF.md` and this log. Other Q08–Q36 unresolved.
+
+**Next:** User provides next group of science/physics or simulator answers and later feature blocks. No application code changed in this session.
