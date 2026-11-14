@@ -30,7 +30,7 @@ Read the common [README.md](README.md), then your role-specific contract:
 7. **Offline Windows/Linux runtime:** any shipped data, model weights and visual assets must be bundled and locally usable. Build-time setup may use the internet; gameplay must not require NASA APIs, a CDN, hosted backend or remote Python service. macOS package is out of RAW v0.1 scope.
 8. **Prove behavior:** provide a deterministic fixture, test(s) or reproducible manual steps and explicit failure/no-data behavior. Preserve Rachel `#preview` and do not break the actual Electron app.
 9. **Report truthfully:** identify files changed, imported/added dependencies, exact commands run, test PASS/FAIL/NOT TESTED, OS, artifact/coordinate units, model/data provenance, unresolved questions. Don't claim Windows runtime was tested on Linux.
-10. **Feature branch + reviewed PR only:** no direct upstream `main` push/merge, no stealth integration, no delete/rewrite of teammate work. **Alex coordinates final API reconciliation after RAW Codex finishes.**
+10. **Feature branch + reviewed PR only:** no direct upstream `main` push/merge, no stealth integration, no delete/rewrite of teammate work. **Alex coordinates owner approval and reconciliation for any later API change.**
 
 ## 2. Required contract exchange for any interface
 
