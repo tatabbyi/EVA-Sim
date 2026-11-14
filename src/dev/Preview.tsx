@@ -58,23 +58,32 @@ const O2_CAPACITY = 390;
 const WALK = 2.2; // m/s
 const RUN = 4.6;
 
-// Sample line from the landing site towards the delta (west-north-west). Only used to PLACE the sample objectives;
-// the path you are guided along is planned (src/sim/pathfind.ts).
+// The site: a field of low ridges on real Jezero terrain about 2.4 km north-west of Perseverance's landing site,
+// west of the delta front. The ridges are 10 to 20 m tall (32 m of relief in the whole area, no big landform), with
+// gentle valleys between them. Picked by running the path planner itself over the whole map: here the cheapest
+// walk curves round the ends and sides of the ridges instead of climbing them (three of the five legs bend 14 to
+// 23 m off the straight line; the whole tour is about 810 m). On the gentle hills of the open crater floor the
+// planner just walks straight over, because climbing a 10° hill costs less oxygen than walking round it.
+// The base stands on a 2.3° pad, airlock facing south-east straight down the first leg, so you walk straight out.
+// The line below only PLACES the objectives (route points 1 to 4, in the order the planner visits them).
+// Local metres: x east, z south.
+const BASE_AT: XZ = { x: -1760, z: -1580 };
+const BASE_FACING: XZ = { x: Math.SQRT1_2, z: Math.SQRT1_2 }; // the way the airlock faces (unit vector)
 const ROUTE: XZ[] = [
-  { x: 0, z: 0 }, { x: -8, z: -20 }, { x: -20, z: -45 }, { x: -55, z: -70 },
-  { x: -90, z: -110 }, { x: -140, z: -130 }, { x: -190, z: -170 },
+  { x: BASE_AT.x + BASE_FACING.x * 12, z: BASE_AT.z + BASE_FACING.z * 12 }, // just outside the airlock
+  { x: -1628, z: -1490 }, { x: -1796, z: -1448 }, { x: -1838, z: -1504 }, { x: -1796, z: -1728 },
 ];
 // Objectives along the path, in order, each a little off the track: rocks to step over to, a boulder to zap from
 // the path, a viewpoint marker on the path itself. Kinds: see src/terrain/tasks.ts.
 // minutes: time budget for each objective (its own countdown on the HUD).
 // The four tasks of the team brief (docs/FOUR-TASK-ANIMATION-BRIEF.md), logic in Alex's engine (task-start/finish).
 const TASK_PLAN: { at: number; kind: TaskKind; offset: number; minutes: number }[] = [
-  { at: 2, kind: 'abrade', offset: 1.8, minutes: 4 },
-  { at: 3, kind: 'core', offset: -1.8, minutes: 5 },
-  { at: 4, kind: 'depot', offset: 1.5, minutes: 3 },
-  { at: 6, kind: 'moxie', offset: -2, minutes: 4 },
+  { at: 1, kind: 'abrade', offset: 0, minutes: 4 },
+  { at: 2, kind: 'core', offset: 0, minutes: 5 },
+  { at: 3, kind: 'depot', offset: 0, minutes: 3 },
+  { at: 4, kind: 'moxie', offset: 0, minutes: 4 },
 ];
-const EVA_MINUTES = 45; // total time to be back at base
+const EVA_MINUTES = 90; // total time to be back at base (real EVAs last hours; the site is long and hilly)
 const OFF_ROUTE_M = 10; // farther than this from the guide: re-plan from where you stand
 const REPLAN_EVERY_S = 0.5; // how often to check
 /** Plans from any point through objectives `todo` (cheapest order), counting the walk home unless toHome is false. */
@@ -106,6 +115,7 @@ const STOPS: XZ[] = TASK_PLAN.map(({ at: k, offset }) => {
 });
 // ?demo=core (or sample), ?demo=laser, ?demo=panorama: start at that objective and begin it (for checks and demo recordings).
 // ?demo=fog: the visor stays fogged (to judge the look). ?demo=console: start seated at the base console.
+// ?demo=suit: start in the base looking at your suit on its stand by the hatch.
 const PARAMS = new URLSearchParams(window.location.search);
 const DEMO = PARAMS.get('demo');
 // Where the path outline is drawn: 'world' (3D arrows on the ground) or 'glass' (projected onto the visor).
@@ -159,13 +169,14 @@ export function Preview() {
   const currentRef = useRef(0); // which objective's clock is running (-1: none)
   const windRef = useRef(0.4);
   // Inside the base walking about, seated at the console, or out on the EVA.
-  const modeRef = useRef<'base' | 'console' | 'eva'>(DEMO && DEMO !== 'console' ? 'eva' : 'base');
+  const modeRef = useRef<'base' | 'console' | 'eva'>(DEMO && DEMO !== 'console' && DEMO !== 'suit' ? 'eva' : 'base');
   const leaveConsoleRef = useRef<() => void>(() => {});
   const launchRef = useRef<() => string | null>(() => null); // go out through the airlock; returns why not, if not
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const beginEvaRef = useRef<(chosen: boolean[], plan: TourPlan | null) => void>(() => {});
   const planRef = useRef<PlanFrom | null>(null); // the path planner, once its fields are ready
   const safestRef = useRef<SafestFrom | null>(null);
+  const straightRef = useRef<(pts: XZ[]) => XZ[]>((p) => p); // straight out of the airlock (set in the scene)
   const enterBaseRef = useRef<() => void>(() => {});
   const evaStartRef = useRef(0);
   const [terrainNote, setTerrainNote] = useState('Loading terrain…');
@@ -256,7 +267,7 @@ export function Preview() {
     scene.background = new THREE.Color(palette.space); // only seen at night; by day the sky dome covers it
     // Wider than a normal game camera: the dome lens bends the edges in, like looking through a bubble helmet.
     const camera = new THREE.PerspectiveCamera(80, host.clientWidth / host.clientHeight, 0.05, 8000);
-    camera.position.set(0, EYE, 0);
+    camera.position.set(ROUTE[0].x, EYE, ROUTE[0].z);
     camera.lookAt(STOPS[0].x, EYE, STOPS[0].z); // face the first stop
     if (modeRef.current === 'base') {
       // Start standing inside the base, facing the console. A normal field of view in here (no helmet).
@@ -264,6 +275,10 @@ export function Preview() {
       camera.quaternion.copy(room.start.quaternion);
       camera.fov = 70;
       camera.updateProjectionMatrix();
+      if (DEMO === 'suit') {
+        camera.position.set(0.4, 1.65, 1.2);
+        camera.lookAt(Math.sin(0.6) * 3.32, 1.15, Math.cos(0.6) * 3.32);
+      }
     }
 
     // Lights for the rocks and the corer (the terrain shader does its own lighting)
@@ -419,6 +434,27 @@ export function Preview() {
     let guidePoints: XZ[] = []; // the path the guide currently shows
     let lastReplan = 0;
     // Laying the path: both versions get the same route.
+    // Every planned path leaves (and comes home) straight through the apron in front of the airlock, not sideways
+    // along the hull: the stretch within APRON_M of the hatch is replaced by a straight line out of it.
+    const APRON_M = 14;
+    const straightAtDoor = (pts: XZ[]): XZ[] => {
+      if (!base || pts.length < 2) return pts;
+      const door = { x: base.door.x, z: base.door.z };
+      const apron = { x: door.x + BASE_FACING.x * APRON_M, z: door.z + BASE_FACING.z * APRON_M }; // straight out of the hatch
+      const near = (p: XZ) => Math.hypot(p.x - door.x, p.z - door.z) < APRON_M + 1;
+      let out = pts;
+      if (near(out[0])) {
+        let k = 0;
+        while (k < out.length - 1 && near(out[k])) k++;
+        out = [door, apron, ...out.slice(k)];
+      }
+      if (near(out[out.length - 1])) {
+        let k = out.length - 1;
+        while (k > 1 && near(out[k])) k--;
+        out = [...out.slice(0, k + 1), apron, door];
+      }
+      return out.filter((p, i) => i === 0 || Math.hypot(p.x - out[i - 1].x, p.z - out[i - 1].z) > 0.5);
+    };
     const layRoute = (pts: XZ[]) => {
       const routePoints = pts.map((p) => ({ x: p.x, z: p.z }));
       if (runtimeEngine && routeTerrain) {
@@ -512,7 +548,12 @@ export function Preview() {
     const kneelSpot = new THREE.Vector3(); // where you kneel beside the rock while sampling
     let crouch = 0; // 0 standing, 1 kneeling
     const lookMatrix = new THREE.Matrix4();
-    const headTurn = new THREE.Quaternion(), headEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+    const headEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+    /** Removes any sideways tilt (roll) from a view, keeping where it looks. */
+    const levelView = (q: THREE.Quaternion) => {
+      headEuler.setFromQuaternion(q, 'YXZ');
+      return q.setFromEuler(headEuler.set(headEuler.x, headEuler.y, 0));
+    };
     // Your body during an objective: faces the target while only your head turns, so the arms and tools (placed
     // relative to the body) stay put when you look around. The same as the camera the rest of the time.
     const body = new THREE.PerspectiveCamera();
@@ -527,7 +568,7 @@ export function Preview() {
       const plan = planFrom?.(from, homeBound ? [] : tasks.flatMap((t, i) => (picked[i] && t.state !== 'done' ? [i] : [])));
       if (plan) {
         planOrder = plan.order;
-        if (plan.points.length > 1) layRoute(plan.points);
+        if (plan.points.length > 1) layRoute(straightAtDoor(plan.points));
       } else if (planFrom) setNotice({ level: 'warning', title: 'ROUTE UNAVAILABLE', message: 'No walkable path from here: slopes over 24° or the edge of the map.' });
       return !!plan;
     };
@@ -566,7 +607,7 @@ export function Preview() {
       if (!base || !heights) return;
       const shuttle = { x: base.door.x, z: base.door.z };
       if (!plan || plan.points.length < 2) return void setNotice({ level: 'warning', title: 'ROUTE UNAVAILABLE', message: 'No walkable path to the picked objectives.' });
-      const plannedRoute = plan.points;
+      const plannedRoute = straightAtDoor(plan.points);
       const engine = replaceRuntime(flags, shuttle, plannedRoute);
       if (!engine) return;
       engine.resume();
@@ -690,8 +731,8 @@ export function Preview() {
       setHeightRange(material, lo, hi);
       heights = grid;
 
-      // The base sits just behind where you start, its airlock facing the landing site.
-      base = createSpaceBase(new THREE.Vector3(0, groundAt(0, 15), 15), new THREE.Vector3(0, 0, -1), groundAt);
+      // The base sits just behind where you start, its airlock facing down the first leg.
+      base = createSpaceBase(new THREE.Vector3(BASE_AT.x, groundAt(BASE_AT.x, BASE_AT.z), BASE_AT.z), new THREE.Vector3(BASE_FACING.x, 0, BASE_FACING.z), groundAt);
       scene.add(base.group);
       STOPS.forEach((p, i) => {
         const g = new THREE.Vector3(p.x, groundAt(p.x, p.z), p.z);
@@ -734,11 +775,12 @@ export function Preview() {
       }
       if (disposed) return;
       planRef.current = planFrom;
+      straightRef.current = straightAtDoor;
       setPlannerReady(!!planFrom);
       const tour = planFrom?.(door0, TASK_PLAN.map((_, i) => i)) ?? null; // the full tour: the guide before you go out
       if (tour) {
         planOrder = tour.order;
-        layRoute(tour.points);
+        layRoute(straightAtDoor(tour.points));
       }
       const clearPath = tour ? [...tour.points, ...tour.back] : [];
       // Loose rocks everywhere except on the planned tour (scenery, not obstacles), at the objectives and in the base.
@@ -753,9 +795,10 @@ export function Preview() {
       setTerrainNote(`Terrain: ${grid.cell} m grid, heights ${lo.toFixed(0)} to ${hi.toFixed(0)} m · ${tour ? `planned path through ${STOPS.length} objectives` : 'path planner unavailable'}`);
       let demoTaskIndex = -1;
       if (DEMO === 'base') {
-        // ?demo=base: stand out on the plain and look back at the base
-        camera.position.set(-16, groundAt(-16, -12) + EYE, -12);
-        camera.lookAt(0, groundAt(0, 15) + 3, 15);
+        // ?demo=base: stand out on the ground in front of the airlock, a little to one side, and look back at the base
+        const vx = BASE_AT.x + BASE_FACING.x * 27 + BASE_FACING.z * 16, vz = BASE_AT.z + BASE_FACING.z * 27 - BASE_FACING.x * 16;
+        camera.position.set(vx, groundAt(vx, vz) + EYE, vz);
+        camera.lookAt(BASE_AT.x, groundAt(BASE_AT.x, BASE_AT.z) + 3, BASE_AT.z);
       } else if (DEMO) {
         // ?demo=core | laser | panorama (or sample = core): start right at that objective.
         const kind = DEMO === 'sample' ? 'core' : DEMO;
@@ -978,8 +1021,11 @@ export function Preview() {
           lookMatrix.lookAt(camera.position, task.lookAt, THREE.Object3D.DEFAULT_UP);
           lookTarget.setFromRotationMatrix(lookMatrix);
           body.quaternion.slerp(lookTarget, 1 - Math.exp(-gameDt * 4));
-          lookTarget.multiply(headTurn.setFromEuler(headEuler.set(headPitch, headYaw, 0)));
-          camera.quaternion.slerp(lookTarget, 1 - Math.exp(-gameDt * 6));
+          // Head turn on top of the view at the target: yaw about straight up, pitch about the eyes' side axis, no roll.
+          // (Turning about the head's own tilted axis while looking down at a rock tipped the view sideways.)
+          headEuler.setFromQuaternion(lookTarget, 'YXZ');
+          lookTarget.setFromEuler(headEuler.set(Math.max(-1.45, Math.min(1.45, headEuler.x + headPitch)), headEuler.y + headYaw, 0));
+          levelView(camera.quaternion.slerp(lookTarget, 1 - Math.exp(-gameDt * 6)));
         }
         const pct = Math.round(task.progress * 100);
         if (pct !== lastPct) {
@@ -992,6 +1038,7 @@ export function Preview() {
           const coreCompleted = runtimeEngine?.getSnapshot().mission.tasks.find((t) => t.id === engineSiteId(finished))?.status === 'complete';
           active = -1;
           near = -1;
+          levelView(camera.quaternion); // hand back a level view to the mouse look
           controls.enabled = true;
           setInteraction({ kind: 'stored', title: task.doneText[0], text: task.doneText[1] });
           if (coreCompleted) {
@@ -1226,7 +1273,7 @@ export function Preview() {
   const alert: HudAlert | null = sample.cyclone
     ? cycloneAlert
     : interaction.kind === 'prompt'
-      ? { level: 'info', title: interaction.title, message: interaction.text, acceptKey: 'F', onAccept: () => startSampleRef.current() }
+      ? { level: 'info', title: interaction.title, message: interaction.text, acceptKey: 'E', onAccept: () => startSampleRef.current() }
       : interaction.kind === 'sampling'
         ? { level: 'info', title: interaction.title, message: `${interaction.phase}… ${interaction.pct}%` }
         : interaction.kind === 'stored'
@@ -1275,7 +1322,7 @@ export function Preview() {
     [plannerReady, door, planKey],
   );
   const tour = safest?.plan ?? null;
-  const setupRoute: XZ[] = useMemo(() => (tour ? [...tour.points, ...tour.back.slice(1)] : [door]), [tour, door]);
+  const setupRoute: XZ[] = useMemo(() => (tour ? straightRef.current([...tour.points, ...tour.back.slice(1)]) : [door]), [tour, door]);
   const routeTo = tour ? setupRoute.length - 1 : -1; // the whole route is the plan
   const walk = useMemo(() => {
     if (!heightsLoaded || mode === 'eva') return null;

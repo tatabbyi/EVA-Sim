@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { sampleBilinear, type Grid } from '../shared/grids';
 import type { XZ } from '../shared/coords';
+import { MAP_BARE, SLOPE_CLASSES } from './palette';
 import './SetupConsole.css';
 
 export interface SetupMission {
@@ -50,8 +51,7 @@ export interface SetupConsoleProps {
   onClose(): void;
 }
 
-const MAP_W = 1400, MAP_H = 900; // map drawing size; scaled to fit, cropping the edges like "cover"
-const LOW_TO_HIGH = ['#c8a669', '#c7926a', '#c37861', '#c26860']; // sand, tan, terracotta, clay red
+const MAP_W = 1200, MAP_H = 1000; // map drawing size (about the shape of the map area); scaled to fit like "cover"
 
 function hexRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -87,7 +87,8 @@ function mapRegion(points: XZ[]) {
   return { x0, x1, z0, z1 };
 }
 
-/** A clean topographic map: low-to-high colour, soft shading from the north-west, smooth contour lines.
+/** A clean topographic map: colour = walkability by slope (SLOPE_CLASSES, the same as on the ground outside),
+ *  soft shading from the north-west, smooth contour lines for height.
  *  Returns the contour spacing in metres. */
 function drawMap(canvas: HTMLCanvasElement, grid: Grid<Float32Array>, r: ReturnType<typeof mapRegion>) {
   canvas.width = MAP_W;
@@ -123,21 +124,26 @@ function drawMap(canvas: HTMLCanvasElement, grid: Grid<Float32Array>, r: ReturnT
     lo = Math.min(lo, h);
     hi = Math.max(hi, h);
   }
-  const ramp = LOW_TO_HIGH.map(hexRgb);
+  const classes = SLOPE_CLASSES.map((c, i) => hexRgb(i === 0 ? MAP_BARE : c.colour)); // easy ground: plain paper
+  const ease = (e0: number, e1: number, x: number) => Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  const D = 5; // slope measured over about 4 m, like the height data
   const img = ctx.createImageData(MAP_W, MAP_H);
   const lx = -0.55, ly = 0.65, lz = -0.52, ll = Math.hypot(lx, ly, lz); // light from the north-west
   for (let py = 0; py < MAP_H; py++) {
     for (let px = 0; px < MAP_W; px++) {
       const i = py * MAP_W + px;
-      const h = hs[i];
       const hr = hs[py * MAP_W + Math.min(MAP_W - 1, px + 1)], hl = hs[py * MAP_W + Math.max(0, px - 1)];
       const hd = hs[Math.min(MAP_H - 1, py + 1) * MAP_W + px], hu = hs[Math.max(0, py - 1) * MAP_W + px];
       const nx = (-(hr - hl) / (2 * mpp)) * 3, nz = (-(hd - hu) / (2 * mpp)) * 3, nl = Math.hypot(nx, 1, nz);
       const lambert = Math.max(0, (nx * lx + ly + nz * lz) / (nl * ll));
       const shade = 0.62 + 0.5 * lambert;
-      const t = ((h - lo) / Math.max(1e-3, hi - lo)) * (ramp.length - 1);
-      const k = Math.min(ramp.length - 2, Math.floor(t)), f = t - k;
-      const a = ramp[k], b = ramp[k + 1];
+      const sx = (hs[py * MAP_W + Math.min(MAP_W - 1, px + D)] - hs[py * MAP_W + Math.max(0, px - D)]) / (2 * D * mpp);
+      const sz = (hs[Math.min(MAP_H - 1, py + D) * MAP_W + px] - hs[Math.max(0, py - D) * MAP_W + px]) / (2 * D * mpp);
+      const deg = (Math.atan(Math.hypot(sx, sz)) * 180) / Math.PI;
+      let t = 0;
+      for (let c = 0; c < classes.length - 1; c++) t += ease(SLOPE_CLASSES[c].upTo - 0.75, SLOPE_CLASSES[c].upTo + 0.75, deg);
+      const k = Math.min(classes.length - 2, Math.floor(t)), f = t - k;
+      const a = classes[k], b = classes[k + 1];
       img.data[i * 4] = Math.min(255, (a[0] + (b[0] - a[0]) * f) * shade);
       img.data[i * 4 + 1] = Math.min(255, (a[1] + (b[1] - a[1]) * f) * shade);
       img.data[i * 4 + 2] = Math.min(255, (a[2] + (b[2] - a[2]) * f) * shade);
@@ -201,11 +207,10 @@ function Meter({ value, total, tone }: { value: number; total: number; tone: 'ok
 export function SetupConsole({ missions, chosen, onToggle, levels, heights, route, routeTo, base, ready, onClose }: SetupConsoleProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState(-1);
-  const [spacing, setSpacing] = useState(2);
   const region = useMemo(() => mapRegion([base, ...route, ...missions.map((m) => m.at)]), [base, route, missions]);
 
   useEffect(() => {
-    if (heights && canvasRef.current) setSpacing(drawMap(canvasRef.current, heights, region));
+    if (heights && canvasRef.current) drawMap(canvasRef.current, heights, region);
   }, [heights, region]);
 
   const toMap = (p: XZ) => ({ x: ((p.x - region.x0) / (region.x1 - region.x0)) * MAP_W, y: ((p.z - region.z0) / (region.z1 - region.z0)) * MAP_H });
@@ -220,20 +225,12 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
 
   return (
     <div className="plan">
-      <header className="plan-head">
-        <h1 className="plan-title">EVA plan</h1>
-        <button type="button" className="plan-close" onClick={onClose}>
-          Close (Esc)
+      <section className="plan-side">
+        <button type="button" className="plan-back" onClick={onClose} aria-label="Back (Esc)">
+          ←
         </button>
-      </header>
-      <div className="plan-body">
-        <section className="plan-side">
-          <div className="plan-mission">
-            <h2 className="plan-mission-name">Crater floor traverse</h2>
-            <p className="plan-mission-text">Walk out from the base, do the subtasks you tick, and walk back.</p>
-          </div>
-
-          <h3 className="plan-h">Subtasks</h3>
+        <div className="plan-card">
+          <h2 className="plan-mission-name">Ridge field traverse</h2>
           <ul className="plan-tasks">
             {missions.map((m, i) => (
               <li key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(-1)}>
@@ -241,26 +238,26 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
                   <input type="checkbox" checked={chosen[i]} disabled={m.done} onChange={() => onToggle(i)} />
                   <span className="plan-task-num">{i + 1}</span>
                   <span className="plan-task-name">{m.title}</span>
-                  <span className="plan-task-meta">{m.done ? 'Done' : `${m.minutes} min · ${Math.round(m.distance)} m away`}</span>
+                  <span className="plan-task-meta">{m.done ? 'Done' : `${m.minutes} min`}</span>
                 </label>
               </li>
             ))}
           </ul>
-
-          <h3 className="plan-h">This plan needs</h3>
+        </div>
+        <div className="plan-card">
           {levels ? (
             <dl className="plan-needs">
               <div>
                 <dt>Oxygen</dt>
                 <dd>
-                  {litres(needed)} <span className="plan-sub">of the {litres(levels.tank)} in your suit, with {litres(levels.reserve)} kept spare</span>
+                  {Math.round(needed)} of {litres(levels.tank)}
                 </dd>
                 <Meter value={needed} total={levels.tank} tone={fitsO2 ? 'ok' : 'danger'} />
               </div>
               <div>
                 <dt>Time</dt>
                 <dd>
-                  {Math.round(levels.minutes)} minutes <span className="plan-sub">of the {levels.evaMinutes} allowed · {(levels.metres / 1000).toFixed(2)} km walk there and back</span>
+                  {Math.round(levels.minutes)} of {levels.evaMinutes} minutes
                 </dd>
                 <Meter value={levels.minutes} total={levels.evaMinutes} tone={fitsTime ? (levels.minutes > levels.evaMinutes * 0.85 ? 'warning' : 'ok') : 'danger'} />
               </div>
@@ -280,19 +277,19 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
               <div>
                 <dt>Base oxygen</dt>
                 <dd>
-                  {litres(levels.baseStore)} stored <span className="plan-sub">({litres(levels.lastEva.returned + levels.lastEva.isru)} recovered since the last EVA)</span>
+                  {litres(levels.baseStore)} · {Math.round(levels.lastEva.returned + levels.lastEva.isru)} recovered
                 </dd>
               </div>
             </dl>
           ) : (
             <p className="plan-status">Loading…</p>
           )}
-
           <button type="button" className="plan-save" onClick={onClose}>
-            Save plan
+            Save plan →
           </button>
-          <p className={`plan-status${ready ? ' is-ready' : ''}`}>{ready ? 'Ready. Suit up at the airlock to go out.' : why}</p>
-        </section>
+          {!ready && why && <p className="plan-status">{why}</p>}
+        </div>
+      </section>
 
         <section className="plan-map" aria-label="Map of the route and subtasks">
           <canvas ref={canvasRef} className="plan-map-canvas" />
@@ -330,21 +327,27 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
               <rect x="-14" y="-14" width="28" height="28" rx="5" />
               <text x="22" dy="0.36em">Base</text>
             </g>
-            <g className="plan-scale" transform={`translate(160 ${MAP_H - 44})`}>
+            <g className="plan-scale" transform={`translate(70 ${MAP_H - 50})`}>
               <path d={`M0 0 H${scalePx.toFixed(1)} M0 -7 V7 M${scalePx.toFixed(1)} -7 V7`} />
               <text x={scalePx / 2} y="-12">
                 {scaleM} m
               </text>
             </g>
-            <g className="plan-north" transform={`translate(${MAP_W - 170} 60)`}>
+            <g className="plan-north" transform={`translate(${MAP_W - 70} 70)`}>
               <path d="M0 -22 L10 8 L0 1 L-10 8 Z" />
               <text y="30">N</text>
             </g>
           </svg>
           {!heights && <div className="plan-map-wait">Loading the map…</div>}
-          <div className="plan-map-key">Height lines every {spacing} m · redder is higher</div>
+          <div className="plan-map-key" aria-label="Ground colours by slope">
+            {SLOPE_CLASSES.map((c, i) => (
+              <span key={c.label}>
+                <i style={{ background: i === 0 ? MAP_BARE : c.colour }} />
+                {c.label}
+              </span>
+            ))}
+          </div>
         </section>
-      </div>
     </div>
   );
 }

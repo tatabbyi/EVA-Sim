@@ -16,7 +16,7 @@ import { palette } from '../ui/palette';
 import { createWaypointBeacon } from './beacon';
 import { createNoiseTexture } from './noiseTexture';
 import { rockGeometry, type SampleSite } from './sampleSite';
-import { createSuitArm } from './suitArm';
+import { createSuitArm, headingFrame, reachElbow } from './suitArm';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 export type TaskKind = 'core' | 'laser' | 'panorama' | 'abrade' | 'depot' | 'moxie';
@@ -347,6 +347,7 @@ export function createDepotTask(ground: THREE.Vector3): TaskSite {
   let state: TaskState = 'idle', t = 0;
   const hold = new THREE.Vector3(), rest = ground.clone().add(new THREE.Vector3(0, 0.02, 0));
   const elbow = new THREE.Vector3(), palm = new THREE.Vector3(), grip = new THREE.Vector3();
+  const frame = new THREE.Matrix4(), turn = new THREE.Matrix3(), shoulder = new THREE.Vector3(), bend = new THREE.Vector3();
   const upright = new THREE.Quaternion(), lying = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
   const ease = (x: number) => x * x * (3 - 2 * x);
   const phase = () => (t < 1.2 ? 'Taking a sealed tube' : t < 3.2 ? 'Placing the tube' : 'Letting go');
@@ -385,9 +386,11 @@ export function createDepotTask(ground: THREE.Vector3): TaskSite {
       ringMat.color.set(state === 'done' ? palette.ok : palette.ar);
       if (state !== 'active') return;
       t += dt;
-      camera.updateMatrixWorld();
-      hold.set(0.1, -0.5, -0.45).applyMatrix4(camera.matrixWorld); // in front of your chest
-      elbow.set(0.28, -0.7, -0.05).applyMatrix4(camera.matrixWorld);
+      // Heading frame (see suitArm.ts): the tube comes up in front of your chest whichever way your head is tilted.
+      headingFrame(camera, frame);
+      hold.set(0.1, -0.52, -0.4).applyMatrix4(frame);
+      shoulder.set(0.21, -0.28, 0.02).applyMatrix4(frame);
+      bend.set(0.6, -1, 0.25).applyMatrix3(turn.setFromMatrix4(frame));
       if (t < 1.2) {
         // bring the tube up from the tool belt into view
         const k = ease(t / 1.2);
@@ -406,7 +409,7 @@ export function createDepotTask(ground: THREE.Vector3): TaskSite {
       const away = t < 3.2 ? 0 : ease(Math.min(1, (t - 3.2) / 1));
       grip.copy(tube.position).add(new THREE.Vector3(0, 0.05 + away * 0.25, 0));
       palm.copy(tube.position).add(new THREE.Vector3(0, -0.02 + away * 0.25, 0));
-      arm.pose(grip, palm, elbow);
+      arm.pose(grip, palm, reachElbow(shoulder, grip, bend, elbow), shoulder);
       if (t >= DURATION) {
         state = 'done';
         arm.root.visible = false;
