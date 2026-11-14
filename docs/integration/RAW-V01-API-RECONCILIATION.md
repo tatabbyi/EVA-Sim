@@ -20,7 +20,7 @@
 | HUD adapter | `toHelmetHud(snapshot)` in `src/adapters/hud.ts` | Read-only actual task completion and N/A resources; doesn't mutate Rachel HUD | Existing Rachel SuitBar still has mandatory `fraction:0` on unknown; optional unknown bar contract needed |
 | Scene adapter | `mountScene(host,engine,heights,reportRoute?)` in `src/adapters/scene.ts` | Owns Three.js renderer, uses Rachel material/sky/route sample site, handles route error, lifecycle | Victor real model insertion, all four animations, independent scene visual ownership to agree |
 | Route visual | `createRouteVisual(validate,build,detach,report)` in `src/adapters/routes.ts` | Identity-based build; failure is recoverable, no repeated invalid route build | Live `routePath.ts` update may require revisiting matching Catmull-Rom curve and arrow width; Rachel agreement |
-| Desktop | `electron/main.cjs`, `electron-builder.json`, `.github/workflows/raw-desktop.yml` | Isolated Electron host, offline local assets, Windows+Linux targets | Native CI still failing smoke in both OS, no actual CI artifacts, unsigned NSIS; physical offline test pending |
+| Desktop | `electron/main.cjs`, `electron-builder.json`, `.github/workflows/raw-desktop.yml` | Isolated Electron host, offline local assets, Windows+Linux targets | Native Windows CI PASS for build and both GUI smokes; Linux AppImage CI build PASS but runner WebGL2 GUI FAIL; installer unsigned; manual installation and disconnected offline test pending |
 
 ## Important mismatch: Nanda's draft schema is NOT the exported schema
 
@@ -71,4 +71,4 @@ Actual app `mountScene` reuses Rachel's `createTerrainMaterial`, `createStarrySk
 2. Check latest accessible `tatabbyi/EVA-Sim:main` via user's local Git (private upstream is 404 to this connector) and resolve ownership/diff.
 3. Each teammate reviews their actual consumer types/units and suggests changes to their OWN module or Alex's integration adapter; explicitly record proposal vs agreement.
 4. Promote only the specific approved field/type signatures to `ACCEPTED`; this document stays `REVIEW` until then.
-5. Include a **clean, minimal set** of integration contracts in the later team PR. Do not merge the personal fork's full `main` history.
+5. Review the accompanying integration documents in this PR, then approve specific types and interfaces; never merge unrelated documentation history from the personal fork.
