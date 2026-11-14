@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { mkdir, writeFile } from 'node:fs/promises';
+import {focusNative} from './gui-runtime.mjs';
 const electron=createRequire(import.meta.url)('electron');
 const child=spawn(electron,['.','--remote-debugging-address=127.0.0.1','--remote-debugging-port=0'],{stdio:['ignore','pipe','pipe']});
 let output='',ws,id=0;const pending=new Map();
@@ -45,7 +46,7 @@ try {
  await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject;});
  ws.onmessage=event=>{const r=JSON.parse(event.data);if(!r.id)return;const p=pending.get(r.id);pending.delete(r.id);if(r.error)p?.reject(new Error(JSON.stringify(r.error)));else p?.resolve(r.result);};
  await send('Runtime.enable');await send('Page.enable');await mkdir('release/evidence',{recursive:true});
- await send('Page.bringToFront');await until(s=>s.ready&&s.oxygen>749,15000,'Normal scene');
+ await until(s=>s.ready&&s.oxygen>749,15000,'Normal scene');await focusNative(child.pid,true);await send('Page.bringToFront');
  await lock();const idle=await state();await wait(1200);const later=await state();assert.ok(later.oxygen<idle.oxygen);assert.equal(later.power,165);console.log('GUI nominal idle',JSON.stringify(later));
  await fast(true);await until(s=>s.activity==='fast'&&s.rate>100,5000,'Fast gait');
  let target;

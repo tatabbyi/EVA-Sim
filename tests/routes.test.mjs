@@ -101,7 +101,8 @@ test('actual input adapter sends only intent changes and clears held input on re
  let input;
  try {
   const engine=createEngine(region,mission),commands=[];
-  const camera={rotation:{y:0}};
+  const {PerspectiveCamera}=await import('three');
+  const camera=new PerspectiveCamera();
   input=createDemoInput(camera,canvas,{...engine,dispatch(command){commands.push(command);engine.dispatch(command);}});
   canvas.dispatchEvent(new Event('click'));
   for(let i=0;i<100;i++)input.update();assert.equal(commands.length,0);

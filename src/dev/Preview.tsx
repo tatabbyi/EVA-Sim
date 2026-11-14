@@ -315,7 +315,7 @@ export function Preview() {
     let vy = 0, airborne = false;
     let devTools = false; // Look panel + test label, hidden unless you press the backtick key
     const onKeyDown = (e: KeyboardEvent) => {
-      keys.add(e.code);
+      if (controls.isLocked) keys.add(e.code);
       if (e.code === 'Backquote') {
         devTools = !devTools;
         if (devTools) gui.show();
@@ -336,7 +336,7 @@ export function Preview() {
       if (e.code === 'KeyT' && modeRef.current === 'eva') setTopology(!topologyOn);
       if (e.code === 'Space') {
         e.preventDefault(); // don't scroll the page
-        if (modeRef.current === 'eva' && !airborne && active < 0) {
+        if (controls.isLocked && !runtimePausedRef.current && modeRef.current === 'eva' && !airborne && active < 0) {
           vy = JUMP_SPEED;
           airborne = true;
           sway.look(0, 22); // the helmet lurches as you push off
@@ -351,6 +351,9 @@ export function Preview() {
         runtimePausedRef.current = true;
       }
     };
+    // Releasing pointer lock must stop held intent, including when key-up is
+    // delivered to another window. Resume only through the existing EVA click.
+    controls.addEventListener('unlock', onBlur);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
@@ -864,7 +867,7 @@ export function Preview() {
       // Walking (blocked while sampling)
       const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
       const side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
-      let moving = active < 0 && (fwd !== 0 || side !== 0);
+      let moving = controls.isLocked && !runtimePausedRef.current && active < 0 && (fwd !== 0 || side !== 0);
       let running = moving && (keys.has('ShiftLeft') || keys.has('ShiftRight'));
       if (runtimeEngine && runtimeClock) {
         // Walk the way you face: forward is where the camera looks, flattened onto the ground; right is 90° clockwise.
@@ -1130,6 +1133,7 @@ export function Preview() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
+      controls.removeEventListener('unlock', onBlur);
       controls.dispose();
       gui.destroy();
       sky.dispose();

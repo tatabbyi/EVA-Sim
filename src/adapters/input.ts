@@ -1,9 +1,10 @@
 // Written with AI assistance (Codex). Replaceable demo controller; independent of Nanda's walk code.
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
-import type { PerspectiveCamera } from 'three';
+import { Vector3, type PerspectiveCamera } from 'three';
 import type { Engine } from '../core/engine';
 export function createDemoInput(camera: PerspectiveCamera, canvas: HTMLCanvasElement, engine: Engine) {
   const controls = new PointerLockControls(camera, canvas), keys = new Set<string>();
+  const look = new Vector3();
   let last = { x: 0, z: 0, run: false };
   const send = (x: number, z: number, run: boolean) => {
     if (x === last.x && z === last.z && run === last.run) return;
@@ -23,8 +24,17 @@ export function createDemoInput(camera: PerspectiveCamera, canvas: HTMLCanvasEle
     update() {
       if (!controls.isLocked || engine.getSnapshot().paused) { clear(); return; }
       const forward = Number(keys.has('KeyW'))-Number(keys.has('KeyS')), right = Number(keys.has('KeyD'))-Number(keys.has('KeyA'));
-      const yaw = camera.rotation.y;
-      send(right*Math.cos(yaw)-forward*Math.sin(yaw), -right*Math.sin(yaw)-forward*Math.cos(yaw), keys.has('ShiftLeft') || keys.has('ShiftRight'));
+      // XYZ Euler .y folds past 90° and couples heading to pitch. Use the
+      // actual world quaternion's planar forward; X is east, Z is south.
+      camera.getWorldDirection(look);
+      look.y = 0;
+      if (look.lengthSq() < 1e-12) {
+        // At a vertical look direction, recover heading from camera-right.
+        look.setFromMatrixColumn(camera.matrixWorld, 0);
+        look.set(look.z, 0, -look.x);
+      }
+      look.normalize();
+      send(forward*look.x-right*look.z, forward*look.z+right*look.x, keys.has('ShiftLeft') || keys.has('ShiftRight'));
     },
     dispose() {
       offReset(); clear(); controls.removeEventListener('unlock', clear); controls.dispose();
