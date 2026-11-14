@@ -8,7 +8,13 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node scripts/dev-electron.mjs",
+    "dev:electron": "node scripts/dev-electron.mjs",
+    "start:electron": "electron .",
+    "dist:linux": "npm run build && electron-builder --linux --x64 --publish never",
+    "dist:win": "npm run build && electron-builder --win --x64 --publish never",
+    "postinstall": "install-electron"
   },
   "dependencies": {
     "lil-gui": "0.21.0",
@@ -23,6 +29,9 @@
     "@types/three": "0.187.0",
     "@vitejs/plugin-react": "6.3.0",
     "typescript": "7.0.2",
-    "vite": "8.3.8"
-  }
+    "vite": "8.3.8",
+    "electron": "45.3.2",
+    "electron-builder": "26.18.0"
+  },
+  "main": "electron/main.cjs"
 }

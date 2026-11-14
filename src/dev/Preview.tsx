@@ -21,7 +21,7 @@ import { createMarsDaySky, createStarrySky } from '../terrain/sky';
 import { createSpaceBase, type SpaceBase } from '../terrain/base';
 import { createRoutePath, type RoutePath } from '../terrain/routePath';
 import { createSampleSite } from '../terrain/sampleSite';
-import { coreTask, createLaserTask, createPanoramaTask, type TaskKind, type TaskSite } from '../terrain/tasks';
+import { abradeTask, coreTask, createDepotTask, createLaserTask, createMoxieTask, createPanoramaTask, type TaskKind, type TaskSite } from '../terrain/tasks';
 import { HelmetHud, type HudAlert, type SuitBar } from '../ui/HelmetHud';
 import { createHeadSway } from '../ui/headSway';
 import { defaultTerrainPreset, palette, terrainPresets, type TerrainPresetName } from '../ui/palette';
@@ -61,18 +61,30 @@ const ROUTE: XZ[] = [
 // Objectives along the path, in order, each a little off the track: rocks to step over to, a boulder to zap from
 // the path, a viewpoint marker on the path itself. Kinds: see src/terrain/tasks.ts.
 // minutes: time budget for each objective (its own countdown on the HUD).
+// The four tasks of the team brief (docs/FOUR-TASK-ANIMATION-BRIEF.md), logic in Alex's engine (task-start/finish).
 const TASK_PLAN: { at: number; kind: TaskKind; offset: number; minutes: number }[] = [
-  { at: 2, kind: 'core', offset: 1.8, minutes: 5 },
-  { at: 3, kind: 'laser', offset: 5, minutes: 3 },
-  { at: 4, kind: 'panorama', offset: 0, minutes: 2 },
-  { at: 6, kind: 'core', offset: -1.8, minutes: 5 },
+  { at: 2, kind: 'abrade', offset: 1.8, minutes: 4 },
+  { at: 3, kind: 'core', offset: -1.8, minutes: 5 },
+  { at: 4, kind: 'depot', offset: 1.5, minutes: 3 },
+  { at: 6, kind: 'moxie', offset: -2, minutes: 4 },
 ];
 const EVA_MINUTES = 45; // total time to be back at base
 const RESERVE_MINUTES = 30; // O2 kept back, as minutes of resting in the suit (meta.json o2.reserveMinutes)
 const BASE_O2_CAPACITY = 3000; // litres the base store holds
 const ISRU_L_PER_MIN = 58 / 60; // the base O2 plant (MOXIE-style ISRU), litres per minute
-const TASK_TITLES: Record<TaskKind, string> = { core: 'Rock core sample', laser: 'Laser-zap a boulder (SuperCam)', panorama: 'Panorama from the marker' };
-const engineTaskId = (kind: TaskKind): TaskId => kind === 'core' ? 'take-core' : kind === 'laser' ? 'laser-scan' : 'panorama';
+const TASK_TITLES: Record<TaskKind, string> = {
+  abrade: 'Abrade a rock', core: 'Take a core', depot: 'Sample depot', moxie: 'Run MOXIE',
+  laser: 'Laser-zap a boulder (SuperCam)', panorama: 'Panorama from the marker',
+};
+const ENGINE_TASK: Record<TaskKind, TaskId> = {
+  abrade: 'abrade-rock', core: 'take-core', depot: 'sample-depot', moxie: 'run-moxie', laser: 'laser-scan', panorama: 'panorama',
+};
+const engineTaskId = (kind: TaskKind): TaskId => ENGINE_TASK[kind];
+/** The brief's rule: each mission is two of the four tasks, picked at random (you can change them at the console). */
+const twoAtRandom = () => {
+  const order = TASK_PLAN.map((_, i) => i).sort(() => Math.random() - 0.5);
+  return TASK_PLAN.map((_, i) => i === order[0] || i === order[1]);
+};
 const engineSiteId = (index: number) => `preview-task-${index}`;
 const STOPS: XZ[] = TASK_PLAN.map(({ at: k, offset }) => {
   const prev = ROUTE[Math.max(0, k - 1)], next = ROUTE[Math.min(ROUTE.length - 1, k + 1)];
@@ -106,8 +118,13 @@ function o2Bar(litres: number): SuitBar {
 }
 
 function tempBar(c: number): SuitBar {
-  // Outside temperature on a -120 °C to +30 °C scale.
-  return { label: 'TEMP', value: `${Math.round(c)}°C`, fraction: (c + 120) / 150, level: c < -100 ? 'danger' : c < -85 ? 'warning' : 'ok' };
+  // Your core body temperature on a 35 to 40 °C scale: warn from 38 °C (or under 36), danger from 39 °C (or under 35.5).
+  return {
+    label: 'BODY',
+    value: `${c.toFixed(1)}°C`,
+    fraction: Math.min(1, Math.max(0, (c - 35) / 5)),
+    level: c >= 39 || c < 35.5 ? 'danger' : c >= 38 || c < 36 ? 'warning' : 'ok',
+  };
 }
 
 export function Preview() {
@@ -137,7 +154,7 @@ export function Preview() {
   const enterBaseRef = useRef<() => void>(() => {});
   const evaStartRef = useRef(0);
   const [terrainNote, setTerrainNote] = useState('Loading terrain…');
-  const [sample, setSample] = useState<Sample>({ o2: 280, tempC: -63, done: 0, cyclone: false });
+  const [sample, setSample] = useState<Sample>({ o2: 280, tempC: 36.8, done: 0, cyclone: false });
   const [notice, setNotice] = useState<HudAlert | null>(null);
   const [interaction, setInteraction] = useState<Interaction>({ kind: 'none' });
   const [headingHome, setHeadingHome] = useState(false);
@@ -149,7 +166,7 @@ export function Preview() {
   const [fogWarn, setFogWarn] = useState(false); // visor fogging up: slow down
   const [mode, setMode] = useState(modeRef.current);
   const [basePrompt, setBasePrompt] = useState('');
-  const [chosen, setChosen] = useState<boolean[]>(TASK_PLAN.map(() => true)); // missions picked at the console
+  const [chosen, setChosen] = useState<boolean[]>(() => (DEMO ? TASK_PLAN.map(() => true) : twoAtRandom())); // missions picked at the console
   const [heightsLoaded, setHeightsLoaded] = useState<Grid<Float32Array> | null>(null);
   const [door, setDoor] = useState<XZ>({ x: 0, z: 6.4 });
   const [baseStore, setBaseStore] = useState(2400); // litres in the base O2 store
@@ -655,7 +672,12 @@ export function Preview() {
       STOPS.forEach((p, i) => {
         const g = new THREE.Vector3(p.x, groundAt(p.x, p.z), p.z);
         const kind = TASK_PLAN[i].kind;
-        const task = kind === 'core' ? coreTask(createSampleSite(g, i + 1)) : kind === 'laser' ? createLaserTask(g, i + 1) : createPanoramaTask(g);
+        const task =
+          kind === 'core' ? coreTask(createSampleSite(g, i + 1))
+          : kind === 'abrade' ? abradeTask(createSampleSite(g, i + 1, 'abrade'))
+          : kind === 'depot' ? createDepotTask(g)
+          : kind === 'moxie' ? createMoxieTask(g)
+          : kind === 'laser' ? createLaserTask(g, i + 1) : createPanoramaTask(g);
         castShadows(task.group);
         tasks.push(task);
         scene.add(task.group);
@@ -691,7 +713,7 @@ export function Preview() {
         const idx = tasks.findIndex((t) => t.kind === kind);
         if (idx >= 0) {
           const r = tasks[idx].anchor;
-          const back = kind === 'laser' ? 3.2 : kind === 'panorama' ? 0 : 0.9;
+          const back = kind === 'laser' ? 3.2 : kind === 'panorama' ? 0 : kind === 'moxie' ? 1.4 : 0.9;
           camera.position.set(r.x + back, groundAt(r.x + back, r.z + back) + EYE, r.z + back);
           if (kind !== 'panorama') camera.lookAt(r);
           near = idx;
@@ -763,11 +785,12 @@ export function Preview() {
     const hs = { o2: 280, tempOffset: 0, cyclone: false, fog: 0 };
     h.add(hs, 'o2', 0, O2_CAPACITY, 1).name('set O₂ (L)').onChange((v: number) => (o2Now = v));
     h.add(hs, 'fog', 0, 1, 0.05).name('set visor fog').onChange((v: number) => (fog = v));
-    h.add(hs, 'tempOffset', -30, 30, 1).name('temp offset (°C)');
+    h.add(hs, 'tempOffset', -3, 3, 0.1).name('body temp offset (°C)');
     h.add(hs, 'cyclone').name('cyclone alert').onChange((v: boolean) => setSample((p) => ({ ...p, cyclone: v })));
 
     let last = performance.now();
     let o2Now = 280, lastHud = 0, lastSheen = 0, lastLabel = '';
+    let bodyT = 36.8; // core body temperature, °C
     let stride = 0, breathPhase = 0, laserClock = 0, lastShot = -1;
     // Visor fog, 0 clear to 1 fogged. Builds while you run (about 11 s to the warning, 20 s to fully fogged);
     // clears slowly while you walk, faster while you work, fastest standing still (about 10 s from fully fogged).
@@ -844,10 +867,11 @@ export function Preview() {
       let moving = active < 0 && (fwd !== 0 || side !== 0);
       let running = moving && (keys.has('ShiftLeft') || keys.has('ShiftRight'));
       if (runtimeEngine && runtimeClock) {
-        const yaw = camera.rotation.y;
-        const direction = moving
-          ? { x: side * Math.cos(yaw) - fwd * Math.sin(yaw), z: -side * Math.sin(yaw) - fwd * Math.cos(yaw) }
-          : { x: 0, z: 0 };
+        // Walk the way you face: forward is where the camera looks, flattened onto the ground; right is 90° clockwise.
+        // (camera.rotation.y is not the heading: its angle order wraps once you turn past 90°.)
+        camera.getWorldDirection(lookDir);
+        const fl = Math.hypot(lookDir.x, lookDir.z) || 1, fx = lookDir.x / fl, fz = lookDir.z / fl;
+        const direction = moving ? { x: fwd * fx - side * fz, z: fwd * fz + side * fx } : { x: 0, z: 0 };
         runtimeEngine.dispatch({ type: 'input', direction, run: running });
         runtimeClock.tick(time);
         const player = runtimeEngine.getSnapshot().player;
@@ -953,10 +977,13 @@ export function Preview() {
       sway.step(dt, running ? 2 : moving ? 1 : 0);
 
       // Demo suit readings: O2 drains with effort and refills when you stop (whiteboard demo rule; not the real
-      // consumption model, which is Nanda's). Outside temperature follows the sun's height plus a slow drift.
+      // consumption model, which is Nanda's). Body temperature: about 36.8 °C at rest, climbing with hard work (running,
+      // and more when the suit falls behind and the visor fogs), cooling back slowly when you rest.
       const o2Rate = active >= 0 ? -0.6 : running ? -2.4 : moving || airborne ? -0.8 : 1.5; // litres per second
       o2Now = Math.min(O2_CAPACITY, Math.max(0, o2Now + o2Rate * gameDt));
-      const tempNow = -95 + 55 * Math.max(0, Math.sin(THREE.MathUtils.degToRad(sun.elevation))) + 3 * Math.sin(time * 0.15) + hs.tempOffset;
+      const bodyTarget = (running ? 38.6 : moving || airborne ? 37.2 : active >= 0 ? 37.1 : 36.8) + 0.6 * fog;
+      bodyT += (bodyTarget - bodyT) * Math.min(1, gameDt / (bodyTarget > bodyT ? 40 : 70)); // heats up faster than it cools
+      const tempNow = bodyT + hs.tempOffset;
       if (time - lastHud > 0.2) {
         lastHud = time;
         setSample((p) => ({ ...p, o2: o2Now, tempC: tempNow }));
@@ -1058,7 +1085,7 @@ export function Preview() {
       audio.update(dt, effort, windRef.current);
       // Tool sounds: the corer drilling, SuperCam laser clicks, the panorama camera.
       const doing = active >= 0 ? tasks[active] : null;
-      audio.setDrill(!!doing && doing.kind === 'core' && doing.phaseText === 'Drilling core');
+      audio.setDrill(!!doing && ((doing.kind === 'core' && doing.phaseText === 'Drilling core') || (doing.kind === 'abrade' && doing.phaseText === 'Grinding the surface')));
       if (doing?.kind === 'laser') {
         laserClock += dt;
         if (laserClock > 0.12) {

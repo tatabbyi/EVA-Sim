@@ -16,6 +16,9 @@ export const TASK_O2_PER_MIN: Record<string, number> = {
   core: 1.2, // kneeling and drilling: hard work
   laser: 0.6, // standing and aiming
   panorama: 0.5, // turning slowly on the spot
+  abrade: 1.1, // kneeling, pressing a grinder into rock
+  depot: 0.8, // kneeling, placing a tube
+  moxie: 0.5, // standing by while it runs
 };
 /** Resting in the suit, litres per minute (1 MET x suit factor 2), used for the reserve. */
 export const REST_O2_PER_MIN = 0.52;

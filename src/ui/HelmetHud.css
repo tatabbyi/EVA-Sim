@@ -152,42 +152,31 @@
   50% { filter: drop-shadow(0 0 9px rgba(255, 59, 48, 0.95)); }
 }
 
-/* O2 and temperature bars: glass tubes with a segmented, glowing fill */
+/* O2 and body temperature bars: a thick, quiet glass tube with a plain solid fill, like an instrument, not a game */
 .hud-bar-rim {
   fill: none;
-  stroke: color-mix(in srgb, var(--bar-colour) 70%, #ffffff);
-  stroke-width: 1.42em;
+  stroke: color-mix(in srgb, var(--bar-colour) 45%, #ffffff);
+  stroke-width: 2.15em;
   stroke-linecap: round;
-  opacity: 0.55;
+  opacity: 0.35;
 }
 .hud-bar-glass {
   fill: none;
-  stroke: rgba(6, 12, 22, 0.5);
-  stroke-width: 1.3em;
+  stroke: rgba(6, 12, 22, 0.42);
+  stroke-width: 2em;
   stroke-linecap: round;
 }
 .hud-bar-shine {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.3);
-  stroke-width: 0.12em;
+  stroke: rgba(255, 255, 255, 0.16);
+  stroke-width: 0.14em;
   stroke-linecap: round;
 }
 .hud-bar-fill {
   fill: none;
-  stroke-width: 0.8em;
-  filter: drop-shadow(0 0 5px var(--bar-colour));
-}
-.hud-bar-flow {
-  fill: none;
-  stroke: #ffffff;
-  stroke-width: 0.8em;
-  stroke-linecap: round;
-  opacity: 0.45;
-}
-.hud-bar-cap {
-  fill: #ffffff;
-  opacity: 0.95;
-  filter: drop-shadow(0 0 4px var(--bar-colour)) drop-shadow(0 0 9px var(--bar-colour));
+  stroke-width: 1.45em;
+  stroke-linecap: butt;
+  filter: drop-shadow(0 0 2px var(--bar-colour));
 }
 .hud-bar-tick {
   stroke: color-mix(in srgb, var(--bar-colour) 60%, transparent);

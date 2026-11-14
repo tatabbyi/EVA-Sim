@@ -96,15 +96,9 @@ const OPENING: [number, number][] = [
   [0.072, 0.53], [0.063, 0.42],
   [0.075, 0.296], [0.14, 0.145], [0.248, 0.027], [0.386, -0.044],
 ];
-/** Guide for the HUD text and bars: a lower, flatter brow, so the text stays on screen and readable whatever the
- *  opening does above it. */
-const HUD_GUIDE: [number, number][] = [
-  [0.5, 0.075], [0.7, 0.092], [0.84, 0.135], [0.915, 0.215],
-  [0.935, 0.33], [0.935, 0.45], [0.925, 0.545], [0.912, 0.61], [0.92, 0.675],
-  [0.875, 0.785], [0.77, 0.885], [0.635, 0.945], [0.5, 0.965],
-  [0.365, 0.945], [0.23, 0.885], [0.125, 0.785], [0.08, 0.675], [0.088, 0.61],
-  [0.075, 0.545], [0.065, 0.45], [0.065, 0.33], [0.085, 0.215], [0.16, 0.135], [0.3, 0.092],
-];
+/** Guide for the HUD text and bars: the opening itself, shrunk towards the middle of the view, so the text and bars
+ *  run parallel to the real glass edge (concentric with it) while staying on screen and out of the corners. */
+const HUD_GUIDE: [number, number][] = OPENING.map(([x, y]) => [0.5 + (x - 0.5) * 0.93, 0.53 + (y - 0.53) * 0.82]);
 /** Visor pivot hubs: centre (fractions of the layer) and radius (fraction of its height). */
 export const HUB = { x: 0.052, y: 0.61, r: 0.058 };
 
@@ -158,6 +152,21 @@ function edgeCurve(points: [number, number][], w: number, h: number) {
   for (let j = 0; j <= jR; j += 2) arcIdx.push(j);
   const topArc = (d: number) => smoothOpen(arcIdx.map((j) => inset(j, d)));
 
+  /** For lines of text along the upper left: starts where the edge has flattened to about 28° (readable), and every
+   *  line starts from the same point along the edge, so the lines line up like a curved margin. */
+  let jT = jL;
+  for (let j = jL; j < M; j++) {
+    const t = sub(S[(j + 1) % M], S[j]);
+    if ((Math.atan2(-t.y, t.x) * 180) / Math.PI <= 28) {
+      jT = j;
+      break;
+    }
+  }
+  const textIdx: number[] = [];
+  for (let j = jT; j < M; j += 2) textIdx.push(j);
+  for (let j = 0; j <= jR; j += 2) textIdx.push(j);
+  const textArc = (d: number) => smoothOpen(textIdx.map((j) => inset(j, d)));
+
   /** A straight line inside the right edge, inset by d pixels, between fractions from..to of that side (top to bottom). */
   const rightAt = (yFrac: number) => {
     let best = 0, bestD = Infinity;
@@ -176,18 +185,15 @@ function edgeCurve(points: [number, number][], w: number, h: number) {
     const dir = norm(sub(bottom, top));
     return { top, bottom, dir, angle: (Math.atan2(-dir.x, dir.y) * 180) / Math.PI };
   };
-  return { path, topArc, rightEdge };
+  return { path, topArc, textArc, rightEdge };
 }
 
 function visorGeometry(w: number, h: number) {
   const opening = edgeCurve(OPENING, w, h); // the real edge of the glass
   const guide = edgeCurve(HUD_GUIDE, w, h); // where the HUD text and bars sit
 
-  /** The lower edge of the partly lowered gold sun visor, and the band above it. */
-  const visorEdge = `M ${s(pt(-0.05 * w, 0.29 * h))} Q ${s(pt(0.5 * w, -0.01 * h))} ${s(pt(1.05 * w, 0.29 * h))}`;
-  const visorBand = `M ${s(pt(-0.05 * w, -0.3 * h))} L ${s(pt(1.05 * w, -0.3 * h))} L ${s(pt(1.05 * w, 0.29 * h))} Q ${s(pt(0.5 * w, -0.01 * h))} ${s(pt(-0.05 * w, 0.29 * h))} Z`;
 
-  return { outline: opening.path, edgeArc: opening.topArc, topArc: guide.topArc, rightEdge: guide.rightEdge, visorEdge, visorBand };
+  return { outline: opening.path, edgeArc: opening.topArc, topArc: guide.topArc, textArc: guide.textArc, rightEdge: guide.rightEdge };
 }
 
 // ---------- Pieces ----------
@@ -196,11 +202,9 @@ function Bar({ bar, colour, top, bottom, dir, angle, font, gid }: {
   bar: SuitBar; colour: string; top: Pt; bottom: Pt; dir: Pt; angle: number; font: number; gid: string;
 }) {
   const f = Math.min(1, Math.max(0, bar.fraction));
-  const len = Math.hypot(top.x - bottom.x, top.y - bottom.y);
   const lvl = add(bottom, mul(sub(top, bottom), f)); // where the fill ends
   const track = `M ${s(bottom)} L ${s(top)}`;
   const fill = `M ${s(bottom)} L ${s(lvl)}`;
-  const seg = len / 24; // segmented fill: 24 cells
   const outward = pt(dir.y, -dir.x); // towards the glass edge
   const ticks = Array.from({ length: 11 }, (_, k) => {
     const at = add(bottom, mul(sub(top, bottom), k / 10));
@@ -214,8 +218,8 @@ function Bar({ bar, colour, top, bottom, dir, angle, font, gid }: {
     <g className={`hud-bar hud-bar--${bar.level ?? 'ok'}`} style={{ '--bar-colour': colour } as CSSProperties}>
       <defs>
         <linearGradient id={gid} gradientUnits="userSpaceOnUse" x1={bottom.x} y1={bottom.y} x2={top.x} y2={top.y}>
-          <stop offset="0" stopColor={colour} stopOpacity="0.95" />
-          <stop offset="1" stopColor={colour} stopOpacity="0.4" />
+          <stop offset="0" stopColor={colour} stopOpacity="0.85" />
+          <stop offset="1" stopColor={colour} stopOpacity="0.6" />
         </linearGradient>
       </defs>
       {/* glass tube: coloured rim, dark translucent inside, a shine line down one side */}
@@ -224,11 +228,7 @@ function Bar({ bar, colour, top, bottom, dir, angle, font, gid }: {
       <path d={track} className="hud-bar-shine" transform={`translate(${s(mul(outward, -font * 0.22))})`} />
       {f > 0.005 && (
         <>
-          <path d={fill} className="hud-bar-fill" stroke={`url(#${gid})`} strokeDasharray={`${seg * 0.72} ${seg * 0.28}`} />
-          <path d={fill} className="hud-bar-flow" strokeDasharray={`${seg * 1.6} ${len * 2}`}>
-            <animate attributeName="stroke-dashoffset" from="0" to={-len} dur="2.6s" repeatCount="indefinite" />
-          </path>
-          <circle cx={lvl.x} cy={lvl.y} r={font * 0.36} className="hud-bar-cap" />
+          <path d={fill} className="hud-bar-fill" stroke={`url(#${gid})`} />
         </>
       )}
       {ticks}
@@ -262,12 +262,6 @@ const HelmetFrame = memo(function HelmetFrame({ w, h, uid }: { w: number; h: num
                 <stop offset="55%" stopColor="#000" stopOpacity="0" />
                 <stop offset="100%" stopColor="#06101f" stopOpacity="0.7" />
               </radialGradient>
-              {/* the gold sun visor, partly lowered: gold film, a little darker and warmer towards its top */}
-              <linearGradient id={id('sunvisor')} x1="0" y1="0" x2="0" y2={h * 0.3} gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#8a5a14" stopOpacity="0.5" />
-                <stop offset="0.6" stopColor="#c8902e" stopOpacity="0.3" />
-                <stop offset="1" stopColor="#e0ad48" stopOpacity="0.2" />
-              </linearGradient>
               <radialGradient id={id('hub')} cx="38%" cy="32%" r="75%">
                 <stop offset="0%" stopColor="#f4efe6" />
                 <stop offset="55%" stopColor="#d3ccbf" />
@@ -356,12 +350,8 @@ const HelmetFrame = memo(function HelmetFrame({ w, h, uid }: { w: number; h: num
 
             {/* ---- the glass ---- */}
             <g clipPath={`url(#${id('visor')})`}>
-              {/* tint: darker towards the edge, faint gold sun visor at the top */}
+              {/* tint: darker towards the edge */}
               <path d={g.outline} fill={`url(#${id('glass')})`} />
-              <path d={g.visorBand} fill={`url(#${id('sunvisor')})`} />
-              {/* the sun visor's edge: a dark lip and a light catch just below it */}
-              <path d={g.visorEdge} fill="none" stroke="#2a1c08" strokeOpacity="0.45" strokeWidth={h * 0.006} filter={`url(#${id('blur-s')})`} />
-              <path d={g.visorEdge} fill="none" stroke="#ffe7b0" strokeOpacity="0.28" strokeWidth={h * 0.003} transform={`translate(0 ${h * 0.007})`} filter={`url(#${id('blur-s')})`} />
               {/* dust and smudges on the glass */}
               <rect width={w} height={h} filter={`url(#${id('smudge')})`} opacity="0.05" />
               <rect width={w} height={h} filter={`url(#${id('dust')})`} opacity="0.07" />
@@ -477,18 +467,19 @@ export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, s
         {g && (
           <svg className="hud-svg" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden={!alert}>
             <defs>
-              <path id={id('arc-obj-1')} d={g.topArc(inset)} />
+              <path id={id('arc-obj-1')} d={g.textArc(inset)} />
               {items.map((_, k) => (
-                <path key={k} id={id(`arc-obj-i${k}`)} d={g.topArc(inset + font * (1.6 + k * 1.3))} />
+                <path key={k} id={id(`arc-obj-i${k}`)} d={g.textArc(inset + font * (1.6 + k * 1.3))} />
               ))}
-              <path id={id('arc-alert-1')} d={g.topArc(inset + font * 0.4)} />
-              <path id={id('arc-alert-2')} d={g.topArc(inset + font * 1.9)} />
+              {/* alerts sit below the objectives header line, so they never run into the time */}
+              <path id={id('arc-alert-1')} d={g.topArc(inset + font * 2.8)} />
+              <path id={id('arc-alert-2')} d={g.topArc(inset + font * 4.3)} />
             </defs>
 
             {/* ---- objectives: bending along the top-left of the glass ---- */}
             <g className="hud-on-glass" style={{ fontSize: font }}>
               <text className="hud-obj-head">
-                <textPath href={`#${id('arc-obj-1')}`} startOffset="7%">
+                <textPath href={`#${id('arc-obj-1')}`} startOffset={font * 0.4}>
                   <tspan className="hud-obj-label">OBJECTIVES </tspan>
                   <tspan className="hud-obj-count" dx="0.4em">
                     {objectives.done}/{objectives.total}
@@ -505,7 +496,7 @@ export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, s
               </text>
               {items.map((it, k) => (
                 <text key={k} className={`hud-obj-item hud-obj-item--${it.state}`}>
-                  <textPath href={`#${id(`arc-obj-i${k}`)}`} startOffset="7.6%">
+                  <textPath href={`#${id(`arc-obj-i${k}`)}`} startOffset={font * 1.2}>
                     <tspan className="hud-obj-mark">{it.state === 'done' ? '✓' : it.state === 'current' ? '▸' : '◦'}</tspan>
                     <tspan dx="0.5em">{it.title}</tspan>
                     <tspan className={`hud-obj-item-time hud-obj-time--${it.level ?? 'ok'}`} dx="0.8em">
@@ -545,13 +536,19 @@ export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, s
 
             {/* ---- O2 and temperature: parallel to the right edge ---- */}
             <g className="hud-on-glass" style={{ fontSize: font }}>
-              {[
-                { bar: temperature, colour: 'var(--c-temperature)', d: inset * 1.5 + font * 4 },
-                { bar: o2, colour: 'var(--c-o2)', d: inset * 1.5 },
-              ].map(({ bar, colour, d }, i) => {
-                const e = g.rightEdge(d, 0.24, 0.7);
-                return <Bar key={bar.label} bar={bar} colour={colour} {...e} font={font} gid={id(`bar${i}`)} />;
-              })}
+              {(() => {
+                // Two tall upright bars, set in from the right edge of the glass: straight up and down, and larger
+                // than the text, so they read at a glance.
+                const bf = font * 1.4; // bar scale
+                const edge = g.rightEdge(inset * 0.9, 0.04, 0.9);
+                const x0 = Math.min(edge.top.x, edge.bottom.x); // stay inside the glass at both ends
+                return [
+                  { bar: temperature, colour: 'var(--c-temperature)', x: x0 - bf * 4.4 },
+                  { bar: o2, colour: 'var(--c-o2)', x: x0 },
+                ].map(({ bar, colour, x }, i) => (
+                  <Bar key={bar.label} bar={bar} colour={colour} top={pt(x, edge.top.y)} bottom={pt(x, edge.bottom.y)} dir={pt(0, 1)} angle={0} font={bf} gid={id(`bar${i}`)} />
+                ));
+              })()}
             </g>
           </svg>
         )}

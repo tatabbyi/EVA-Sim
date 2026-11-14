@@ -5,14 +5,21 @@
 //   laser     Laser-zap a boulder from 2 to 7 m away, like Perseverance's SuperCam (LIBS: a laser spark is read
 //             by a spectrometer to get the rock's chemistry).
 //   panorama  360° panorama from a marked viewpoint: turn all the way round, like Mastcam-Z panoramas.
+//   abrade    Abrade a rock: the same tool with a grinding head scrapes off the weathered skin, leaving a fresh patch.
+//   depot     Sample depot: kneel and lay a sealed sample tube on the ground, like Perseverance's Three Forks depot.
+//   moxie     Run MOXIE: a portable, fictionalised MOXIE-style unit makes a few grams of O2 from the CO2 air.
+//             It does not refill the suit (team brief, docs/FOUR-TASK-ANIMATION-BRIEF.md).
+// The four tasks of the team brief (abrade, core, depot, MOXIE) are the mission tasks; laser and panorama stay available.
 
 import * as THREE from 'three';
 import { palette } from '../ui/palette';
 import { createWaypointBeacon } from './beacon';
 import { createNoiseTexture } from './noiseTexture';
 import { rockGeometry, type SampleSite } from './sampleSite';
+import { createSuitArm } from './suitArm';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
-export type TaskKind = 'core' | 'laser' | 'panorama';
+export type TaskKind = 'core' | 'laser' | 'panorama' | 'abrade' | 'depot' | 'moxie';
 export type TaskState = 'idle' | 'active' | 'done';
 
 export interface TaskSite {
@@ -44,13 +51,34 @@ const CORE_PHASE: Record<string, string> = {
   raising: 'Extracting core',
   stowing: 'Sealing tube',
 };
+const ABRADE_PHASE: Record<string, string> = {
+  lowering: 'Positioning abrader',
+  drilling: 'Grinding the surface',
+  raising: 'Lifting the abrader',
+  stowing: 'Stowing the tool',
+};
+
+/** Abrade a rock: the sample site in 'abrade' mode (createSampleSite(ground, seed, 'abrade')). */
+export function abradeTask(site: SampleSite): TaskSite {
+  const t = coreTask(site);
+  return Object.defineProperties({ ...t }, {
+    kind: { value: 'abrade' },
+    title: { value: 'Abrade a rock' },
+    hudTitle: { value: 'ABRADE' },
+    prompt: { value: 'Grind a fresh patch on the rock' },
+    doneText: { value: ['PATCH ABRADED', 'Fresh rock exposed'] },
+    state: { get: () => (site.state === 'idle' ? 'idle' : site.state === 'done' ? 'done' : 'active') },
+    progress: { get: () => site.progress },
+    phaseText: { get: () => ABRADE_PHASE[site.state] ?? 'Working' },
+  }) as TaskSite;
+}
 
 export function coreTask(site: SampleSite): TaskSite {
   const lookAt = site.rockTop.clone().add(new THREE.Vector3(0, 0.26, 0)); // between rock and hands, so both sit mid-view
   return {
     kind: 'core',
-    title: 'Rock core sample',
-    hudTitle: 'ROCK SAMPLE',
+    title: 'Take a core',
+    hudTitle: 'CORE SAMPLE',
     prompt: 'Take a core sample',
     doneText: ['SAMPLE STORED', 'Tube sealed and stowed'],
     group: site.group,
@@ -277,6 +305,236 @@ export function createPanoramaTask(ground: THREE.Vector3): TaskSite {
       }
       lastYaw = yaw;
       if (turned >= Math.PI * 2) state = 'done';
+    },
+    dispose() {
+      for (const d of disposables) d.dispose();
+    },
+  };
+}
+
+// ---------- Sample depot ----------
+
+export function createDepotTask(ground: THREE.Vector3): TaskSite {
+  const group = new THREE.Group();
+  const disposables: { dispose(): void }[] = [];
+  const keep = <T extends { dispose(): void }>(x: T) => (disposables.push(x), x);
+  // The depot spot: a ring on the ground and a beacon
+  const ringMat = keep(new THREE.MeshBasicMaterial({ color: palette.ar, transparent: true, opacity: 0.8, side: THREE.DoubleSide }));
+  const ring = new THREE.Mesh(keep(new THREE.RingGeometry(0.32, 0.36, 40)), ringMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.copy(ground).add(new THREE.Vector3(0, 0.03, 0));
+  group.add(ring);
+  const beacon = createWaypointBeacon();
+  beacon.group.position.copy(ground);
+  group.add(beacon.group);
+  disposables.push(beacon);
+  // A sealed sample tube: titanium body, white cap
+  const tube = new THREE.Group();
+  const metal = keep(new THREE.MeshStandardMaterial({ color: '#c9ced4', roughness: 0.25, metalness: 0.9 }));
+  const capMat = keep(new THREE.MeshStandardMaterial({ color: '#f2efe8', roughness: 0.4 }));
+  tube.add(new THREE.Mesh(keep(new THREE.CylinderGeometry(0.016, 0.016, 0.15, 20)), metal));
+  const cap = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.019, 0.019, 0.03, 20)), capMat);
+  cap.position.y = 0.085;
+  tube.add(cap);
+  tube.visible = false;
+  group.add(tube);
+  const arm = createSuitArm(1);
+  arm.root.visible = false;
+  group.add(arm.root);
+  disposables.push(arm);
+
+  const DURATION = 4.2;
+  let state: TaskState = 'idle', t = 0;
+  const hold = new THREE.Vector3(), rest = ground.clone().add(new THREE.Vector3(0, 0.02, 0));
+  const elbow = new THREE.Vector3(), palm = new THREE.Vector3(), grip = new THREE.Vector3();
+  const upright = new THREE.Quaternion(), lying = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+  const ease = (x: number) => x * x * (3 - 2 * x);
+  const phase = () => (t < 1.2 ? 'Taking a sealed tube' : t < 3.2 ? 'Placing the tube' : 'Letting go');
+
+  return {
+    kind: 'depot',
+    title: 'Sample depot',
+    hudTitle: 'SAMPLE DEPOT',
+    prompt: 'Lay a sealed tube at the depot',
+    doneText: ['TUBE DEPOSITED', 'Left for a future return mission'],
+    group,
+    anchor: ground,
+    lookAt: ground.clone().add(new THREE.Vector3(0, 0.15, 0)),
+    kneel: true,
+    get state() {
+      return state;
+    },
+    get progress() {
+      return Math.min(1, t / DURATION);
+    },
+    get phaseText() {
+      return phase();
+    },
+    inRange: (camera) => flat(camera.position, ground) < 3,
+    start() {
+      if (state !== 'idle') return false;
+      state = 'active';
+      t = 0;
+      tube.visible = true;
+      arm.root.visible = true;
+      return true;
+    },
+    update(dt, time, camera) {
+      beacon.update(time);
+      beacon.group.visible = state === 'idle' && camera.position.distanceTo(ground) > 4;
+      ringMat.color.set(state === 'done' ? palette.ok : palette.ar);
+      if (state !== 'active') return;
+      t += dt;
+      camera.updateMatrixWorld();
+      hold.set(0.1, -0.5, -0.45).applyMatrix4(camera.matrixWorld); // in front of your chest
+      elbow.set(0.28, -0.7, -0.05).applyMatrix4(camera.matrixWorld);
+      if (t < 1.2) {
+        // bring the tube up from the tool belt into view
+        const k = ease(t / 1.2);
+        tube.position.copy(hold).add(new THREE.Vector3(0, -0.25 * (1 - k), 0));
+        tube.quaternion.copy(upright);
+      } else if (t < 3.2) {
+        // reach down and lay it flat on the spot
+        const k = ease((t - 1.2) / 2);
+        tube.position.lerpVectors(hold, rest, k);
+        tube.quaternion.slerpQuaternions(upright, lying, k);
+      } else {
+        tube.position.copy(rest);
+        tube.quaternion.copy(lying);
+      }
+      // the glove holds the tube until it is down, then lifts away
+      const away = t < 3.2 ? 0 : ease(Math.min(1, (t - 3.2) / 1));
+      grip.copy(tube.position).add(new THREE.Vector3(0, 0.05 + away * 0.25, 0));
+      palm.copy(tube.position).add(new THREE.Vector3(0, -0.02 + away * 0.25, 0));
+      arm.pose(grip, palm, elbow);
+      if (t >= DURATION) {
+        state = 'done';
+        arm.root.visible = false;
+      }
+    },
+    dispose() {
+      for (const d of disposables) d.dispose();
+    },
+  };
+}
+
+// ---------- Run MOXIE (portable, fictionalised) ----------
+
+export function createMoxieTask(ground: THREE.Vector3): TaskSite {
+  const group = new THREE.Group();
+  const disposables: { dispose(): void }[] = [];
+  const keep = <T extends { dispose(): void }>(x: T) => (disposables.push(x), x);
+  const unit = new THREE.Group();
+  unit.position.copy(ground);
+  unit.rotation.y = 0.6;
+  group.add(unit);
+  const white = keep(new THREE.MeshStandardMaterial({ color: '#e9e6df', roughness: 0.5 }));
+  const dark = keep(new THREE.MeshStandardMaterial({ color: '#2b2e33', roughness: 0.6, metalness: 0.4 }));
+  const gold = keep(new THREE.MeshStandardMaterial({ color: '#cfa349', roughness: 0.3, metalness: 1 }));
+  const body = new THREE.Mesh(keep(new RoundedBoxGeometry(0.46, 0.3, 0.34, 4, 0.03)), white);
+  body.position.y = 0.17;
+  unit.add(body);
+  const foil = new THREE.Mesh(keep(new THREE.BoxGeometry(0.47, 0.06, 0.35)), gold); // insulation band
+  foil.position.y = 0.06;
+  unit.add(foil);
+  for (let i = 0; i < 6; i++) {
+    // intake grille on the front
+    const slat = new THREE.Mesh(keep(new THREE.BoxGeometry(0.2, 0.012, 0.01)), dark);
+    slat.position.set(-0.08, 0.13 + i * 0.022, 0.175);
+    unit.add(slat);
+  }
+  const fan = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.05, 0.05, 0.01, 6)), dark); // vent fan on the side
+  fan.rotation.z = Math.PI / 2;
+  fan.position.set(0.235, 0.18, 0);
+  unit.add(fan);
+  const vent = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.025, 0.03, 0.08, 16)), dark); // exhaust stack
+  vent.position.set(0.12, 0.36, -0.08);
+  unit.add(vent);
+  // status lights and a readout
+  const lights = [0, 1, 2].map((i) => {
+    const m = keep(new THREE.MeshBasicMaterial({ color: '#ffb340' }));
+    const l = new THREE.Mesh(keep(new THREE.SphereGeometry(0.009, 10, 8)), m);
+    l.position.set(0.1 + i * 0.03, 0.29, 0.175);
+    unit.add(l);
+    return m;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 96;
+  const ctx = canvas.getContext('2d')!;
+  const screenTex = keep(new THREE.CanvasTexture(canvas));
+  screenTex.colorSpace = THREE.SRGBColorSpace;
+  const screen = new THREE.Mesh(keep(new THREE.PlaneGeometry(0.14, 0.055)), keep(new THREE.MeshBasicMaterial({ map: screenTex })));
+  screen.position.set(0.12, 0.22, 0.171);
+  unit.add(screen);
+  const draw = (grams: number, label: string) => {
+    ctx.fillStyle = '#06121a';
+    ctx.fillRect(0, 0, 256, 96);
+    ctx.fillStyle = '#6fe3ff';
+    ctx.font = '600 22px Inter, system-ui, sans-serif';
+    ctx.fillText(label, 14, 34);
+    ctx.fillStyle = '#e6f7ff';
+    ctx.font = '600 34px Inter, system-ui, sans-serif';
+    ctx.fillText(`O₂ ${grams.toFixed(1)} g`, 14, 78);
+    screenTex.needsUpdate = true;
+  };
+  draw(0, 'MOXIE · STANDBY');
+  const beacon = createWaypointBeacon();
+  beacon.group.position.copy(ground);
+  group.add(beacon.group);
+  disposables.push(beacon);
+
+  const DURATION = 7, GRAMS = 6; // a one-hour run (real MOXIE made about 6 to 12 g of O2 per hour), sped up
+  let state: TaskState = 'idle', t = 0, lastDraw = -1;
+  const top = ground.clone().add(new THREE.Vector3(0, 0.3, 0));
+
+  return {
+    kind: 'moxie',
+    title: 'Run MOXIE',
+    hudTitle: 'MOXIE',
+    prompt: 'Start an oxygen-making run',
+    doneText: ['MOXIE RUN COMPLETE', `${GRAMS} g of O₂ made · not for the suit`],
+    group,
+    anchor: top,
+    lookAt: top,
+    kneel: false,
+    get state() {
+      return state;
+    },
+    get progress() {
+      return Math.min(1, t / DURATION);
+    },
+    get phaseText() {
+      return t < 1.2 ? 'Warming up the cell' : `Making O₂ from CO₂: ${((GRAMS * Math.max(0, t - 1.2)) / (DURATION - 1.2)).toFixed(1)} g`;
+    },
+    inRange: (camera) => flat(camera.position, ground) < 3,
+    start() {
+      if (state !== 'idle') return false;
+      state = 'active';
+      t = 0;
+      return true;
+    },
+    update(dt, time, camera) {
+      beacon.update(time);
+      beacon.group.visible = state === 'idle' && camera.position.distanceTo(ground) > 4;
+      if (state === 'done') {
+        lights.forEach((m) => m.color.set('#30d158'));
+        return;
+      }
+      if (state !== 'active') return;
+      t += dt;
+      fan.rotation.y += dt * 25; // intake fan spinning
+      const grams = (GRAMS * Math.max(0, t - 1.2)) / (DURATION - 1.2);
+      lights.forEach((m, i) => m.color.set(t > 1.2 + i * 1.5 ? '#30d158' : Math.sin(time * 8) > 0 ? '#ffb340' : '#3a2a10'));
+      const tick = Math.floor(t * 4);
+      if (tick !== lastDraw) {
+        lastDraw = tick;
+        draw(Math.min(GRAMS, grams), t < 1.2 ? 'MOXIE · WARMING' : 'MOXIE · RUNNING');
+      }
+      if (t >= DURATION) {
+        state = 'done';
+        draw(GRAMS, 'MOXIE · RUN DONE');
+      }
     },
     dispose() {
       for (const d of disposables) d.dispose();
