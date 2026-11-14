@@ -1,4 +1,5 @@
-// Written with AI assistance (Codex). Shared RAW v0.1 contract; all distances metres, time seconds.
+// Written with AI assistance (Codex). Shared RAW contract; metres, seconds, oxygen grams.
+import type { PhysicsTelemetry } from './physics.ts';
 export const TASK_IDS = ['abrade-rock', 'take-core', 'sample-depot', 'run-moxie'] as const;
 export type TaskId = typeof TASK_IDS[number];
 export type XZ = { x: number; z: number }; // east, south
@@ -8,9 +9,9 @@ export type Region = { id: string; frameId: string; terrainRevision?: string; cr
 export type RouteContextV1 = { contractVersion: 1; regionId: string; frameId: string; terrainRevision: string; planner: { kind: 'demo' | 'trained-ml' | 'classical' | 'hybrid'; name: string; version: string }; visitOrder: [string, string] };
 export type Route = { source: 'demo' | 'ml' | 'computed' | 'hybrid' | 'none'; points: XZ[]; context?: RouteContextV1; unavailableReason?: string };
 export type Task = { id: string; type: TaskId; position: XZ; status: 'pending' | 'active' | 'complete' | 'failed' };
-export type Mission = { regionId: string; shuttle: XZ; tasks: Task[]; route: Route };
-export type EngineSnapshot = { simTimeSeconds: number; paused: boolean; region: Region; player: { position: XZ; movementMode: 'idle' | 'walk' | 'run' }; mission: Mission; resources: { oxygenGrams: number | null; oxygenCapacityGrams: number | null }; boundaryWarning: boolean };
-export type SemanticEvent = { type: 'task-started' | 'task-completed'; siteId: string; taskId: TaskId; simTimeSeconds: number } | { type: 'reset'; simTimeSeconds: 0 } | { type: 'route-changed'; source: Route['source']; simTimeSeconds: number };
+export type Mission = { status?: 'active' | 'failed'; regionId: string; shuttle: XZ; tasks: Task[]; route: Route };
+export type EngineSnapshot = { physics?: PhysicsTelemetry; simTimeSeconds: number; paused: boolean; region: Region; player: { position: XZ; movementMode: 'idle' | 'walk' | 'run' }; mission: Mission; resources: { oxygenGrams: number | null; oxygenCapacityGrams: number | null }; boundaryWarning: boolean };
+export type SemanticEvent = { type: 'task-started' | 'task-completed'; siteId: string; taskId: TaskId; simTimeSeconds: number } | { type: 'mission-failed'; reason: 'oxygen-depleted'; simTimeSeconds: number } | { type: 'oxygen-warning'; level: 'normal' | 'low' | 'critical' | 'depleted'; simTimeSeconds: number } | { type: 'reset'; simTimeSeconds: 0 } | { type: 'route-changed'; source: Route['source']; simTimeSeconds: number };
 export type Command = { type: 'input'; direction: XZ; run: boolean } | { type: 'pause' | 'resume' | 'reset' } | { type: 'task-start' | 'task-finish'; siteId: string } | { type: 'route'; route: Route };
 export type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
 export function contains(b: Bounds, p: XZ): boolean {
