@@ -2,6 +2,13 @@
 
 Written with AI assistance (Codex). Contract version: RAW 0.1, 2026-11-14.
 
+## Current test and distribution status (2026-11-14)
+
+- [GitHub Actions run 43611705331](https://github.com/mokachkasss/Sharkies/actions/runs/43611705331) **passed native Windows x64 build**, 17 automated tests and both source/packaged Electron GUI smokes; the unsigned Windows NSIS installer was uploaded as an artifact.
+- The **Linux AppImage was built and uploaded**. Linux hosted GUI smokes failed because the runner reports WebGL2 blocklisted; a separate local Linux/AppImage GUI smoke was reported passing by Codex, not independently rerun here.
+- Manual Windows installer installation, physically disconnected offline operation and actual Nanda/Victor provider integration are **not yet verified**.
+- Historical notes below about "no CI run" and missing native Windows evidence describe the initial implementation **before the later CI fixes**. The actual implementation included in this PR is based on `80af8c9` plus team-review documentation; team-owner approval remains pending.
+
 Implementation is on `feat/raw-engine-v01`, based on local `upstream/main`
 `ac2e18819e3462a89798fb88a75e22cfdd28733e`. Preflight HEAD matched that ref.
 Specifications were read with `git show origin/main:docs/alex-core/18-RAW-ENGINE-V01-APPROVED-SCOPE.md`
