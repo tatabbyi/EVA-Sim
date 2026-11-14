@@ -12,7 +12,7 @@ try {
     // Already running `npm run dev`? Then just open the window on it.
     await server?.close();
     server = null;
-    const running = /already in use/i.test(error.message) && (await fetch('http://localhost:5173/').then((r) => r.ok).catch(() => false));
+    const running = /already in use/i.test(error.message) && (await fetch('http://localhost:5173/', { signal: AbortSignal.timeout(800) }).then((r) => r.ok).catch(() => false));
     if (!running) throw error;
     console.log('Using the dev server already running on http://localhost:5173');
   }
