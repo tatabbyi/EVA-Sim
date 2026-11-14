@@ -1,15 +1,57 @@
 {
   "crs": "+proj=eqc +lat_ts=18.4663 +lat_0=0 +lon_0=0 +x_0=0 +y_0=0 +R=3396190 +units=m +no_defs",
-  "origin": { "X": 4354489, "Y": 1093304, "lon": 77.4508, "lat": 18.4447, "h0": 0 },
-  "boxMetres": 4096,
-  "home": { "x": 0, "z": 0 },
-  "grids": {
-    "height_4m":  { "file": "grids/height_4m.bin",  "type": "float32", "n": 1025, "cell": 4 },
-    "height_2m":  { "file": "grids/height_2m.bin",  "type": "float32", "n": 2049, "cell": 2 },
-    "o2_to_home": { "file": "grids/o2_to_home.bin", "type": "float32", "n": 2049, "cell": 2 },
-    "comms":      { "file": "grids/comms.bin",      "type": "uint8",   "n": 2049, "cell": 2 }
+  "origin": {
+    "X": 4354489,
+    "Y": 1093304,
+    "lon": 77.4508,
+    "lat": 18.4447,
+    "h0": -2569.83349609375
   },
-  "tiles": { "dir": "tiles", "count": 8, "samples": 513, "step": 512, "maxError": 0.5 },
-  "o2": { "usableLitres": 390, "reserveMinutes": 30, "terrainFactor": 1.15 },
-  "lander": { "antennaHeight": 3, "suitAntennaHeight": 2 }
+  "boxMetres": 4096,
+  "home": {
+    "x": 0,
+    "z": 0
+  },
+  "grids": {
+    "height_4m": {
+      "file": "grids/height_4m.bin",
+      "type": "float32",
+      "n": 1025,
+      "cell": 4
+    },
+    "height_2m": {
+      "file": "grids/height_2m.bin",
+      "type": "float32",
+      "n": 2049,
+      "cell": 2
+    },
+    "o2_to_home": {
+      "file": "grids/o2_to_home.bin",
+      "type": "float32",
+      "n": 2049,
+      "cell": 2
+    },
+    "comms": {
+      "file": "grids/comms.bin",
+      "type": "uint8",
+      "n": 2049,
+      "cell": 2
+    }
+  },
+  "tiles": {
+    "dir": "tiles",
+    "count": 8,
+    "samples": 513,
+    "step": 512,
+    "maxError": 0.5
+  },
+  "o2": {
+    "usableLitres": 390,
+    "reserveMinutes": 30,
+    "terrainFactor": 1.15
+  },
+  "lander": {
+    "antennaHeight": 3,
+    "suitAntennaHeight": 2
+  }
 }
