@@ -11,6 +11,21 @@
 .preview-canvas canvas {
   display: block;
 }
+.preview-hidden {
+  display: none;
+}
+/* The Setup screen, laid over the console's main monitor (Preview sets left/top/width/height each frame) */
+.preview-console {
+  position: absolute;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: 4px;
+}
+.preview-glass {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
 .preview-badge {
   position: absolute;
   left: 12px;
@@ -22,4 +37,37 @@
   color: var(--c-hud-dim);
   font: 12px/1.45 system-ui, sans-serif;
   pointer-events: none;
+}
+
+/* Inside the base: a small crosshair and what you can do with what you're looking at */
+.base-ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.base-crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+.base-prompt {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 34px);
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: rgba(5, 11, 17, 0.6);
+  color: #e6f7ff;
+  font: 500 14px/1.4 'Inter', system-ui, sans-serif;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  text-shadow: 0 0 6px rgba(111, 227, 255, 0.5);
 }

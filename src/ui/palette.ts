@@ -19,6 +19,10 @@ export const palette = {
   commsMarginal: '#ffd60a',
   commsDead: '#bf5af2',
 
+  // AR overlay: everything the visor projects (path, contours, markers)
+  ar: '#6fe3ff',
+  arDim: 'rgba(111, 227, 255, 0.35)',
+
   // markers in the world
   waypoint: '#64d2ff',
   objective: '#ffd60a',
@@ -53,15 +57,38 @@ export interface TerrainPreset {
   cycle: number;
   line: string;
   lineStrength: number;
+  banding?: number; // 0 smooth blend between colours, 1 hard steps (one colour per minor contour)
+  minor?: number; // contour spacing, m (default 1)
+  major?: number; // heavier contour every this many m (default 5)
 }
 
 export const terrainPresets = {
+  muted: {
+    // Muted sand, tan, terracotta, clay red and teal: one colour per 50 cm of height, nearly stepped, with a blue
+    // contour line at every change, so even the gentle plain shows its topology at a glance.
+    label: 'Muted topology',
+    ramp: ['#c8a669', '#c7926a', '#c37861', '#c26860', '#548278'],
+    cycle: 2.5,
+    line: '#6fe3ff',
+    lineStrength: 0.3,
+    banding: 0.7,
+    minor: 0.5,
+    major: 2.5,
+  },
+  realistic: {
+    label: 'Realistic (AR contours)',
+    // true-colour Mars ground, low to high, over the whole height range; contours are the visor's cyan AR overlay
+    ramp: ['#5f4232', '#6e4c38', '#7e573f', '#8c6248', '#9a6d51', '#a9795b'],
+    cycle: 0,
+    line: '#6fe3ff',
+    lineStrength: 0.55,
+  },
   martian: {
     label: 'The Martian',
     ramp: ['#4f3527', '#9b6b55', '#c98475', '#e98c5c', '#f7cd7d', '#d86b46', '#c24a31', '#6b2525'],
     cycle: 6,
-    line: '#231c1a',
-    lineStrength: 0.5,
+    line: '#6fe3ff', // blue AR contour lines over the colours
+    lineStrength: 0.4,
   },
   marsTrue: {
     label: 'Realistic Mars',
@@ -108,7 +135,7 @@ export const terrainPresets = {
 } satisfies Record<string, TerrainPreset>;
 
 export type TerrainPresetName = keyof typeof terrainPresets;
-export const defaultTerrainPreset: TerrainPresetName = 'martian';
+export const defaultTerrainPreset: TerrainPresetName = 'muted';
 
 /** The default ground ramp (for legends). */
 export const terrainRamp = terrainPresets[defaultTerrainPreset].ramp;

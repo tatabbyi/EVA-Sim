@@ -1,7 +1,9 @@
 // Written with AI assistance (Codex). Shared RAW contract; metres, seconds, oxygen grams.
 import type { PhysicsTelemetry } from './physics.ts';
 export const TASK_IDS = ['abrade-rock', 'take-core', 'sample-depot', 'run-moxie'] as const;
-export type TaskId = typeof TASK_IDS[number];
+// Rachel's optional historical preview demos are NOT part of the four science missions.
+export const PREVIEW_ONLY_TASK_IDS = ['laser-scan', 'panorama'] as const;
+export type TaskId = typeof TASK_IDS[number] | typeof PREVIEW_ONLY_TASK_IDS[number];
 export type XZ = { x: number; z: number }; // east, south
 export type Bounds = { minX: number; maxX: number; minZ: number; maxZ: number };
 export type Region = { id: string; frameId: string; terrainRevision?: string; crs: string; origin: { X: number; Y: number; h0: number }; visibleBounds: Bounds; playableBounds: Bounds };

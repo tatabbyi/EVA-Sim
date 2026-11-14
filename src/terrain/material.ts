@@ -39,6 +39,7 @@ uniform vec3 uSunDir;
 uniform float uAmbient;
 uniform vec3 uShadow;
 uniform vec3 uLine;
+uniform float uLineLight;    // 1: lines are light added by the visor, 0: painted lines
 uniform vec3 uSteepColor;
 
 uniform float uMinor;         // minor contour interval, m
@@ -71,6 +72,8 @@ uniform float uGridN;
 
 uniform float uRelief;       // exaggerates slopes in the lighting only (1 = true slope), so small relief reads
 uniform float uDetail;       // 0 = smooth, 1 = full close-up surface detail (bumps and grit)
+uniform float uArNear;       // AR overlay (contours, steep warning, Leash) is full strength up to here...
+uniform float uArFar;        // ...and gone beyond here, like a visor display that only annotates what's near
 uniform vec3 uFogColor;
 uniform float uFogNear;
 uniform float uFogFar;
@@ -173,7 +176,10 @@ void main() {
 
   // 3. Steep ground: tint from uSlopeWarn up to the uSlopeMax limit (25°, research/02).
   float slope = degrees(acos(clamp(n.y, -1.0, 1.0)));
-  col = mix(col, uSteepColor, smoothstep(uSlopeWarn, uSlopeMax, slope) * 0.28);
+  // The visor only annotates ground you look down onto: fades with distance and at grazing angles, so far
+  // contours don't pile up into streaks along the horizon.
+  float ar = (1.0 - smoothstep(uArNear, uArFar, length(cameraPosition - vPosW))) * smoothstep(0.05, 0.22, abs(dot(viewDir, n)));
+  col += uSteepColor * smoothstep(uSlopeWarn, uSlopeMax, slope) * 0.22 * ar; // AR warning glow on steep ground
 
   // 4. Comms: diagonal hatching, so it reads as "no signal" without hiding the ground.
   if (uHasComms > 0.5) {
@@ -203,7 +209,12 @@ void main() {
   float crease = clamp(length(fwidth(n)) * uCreaseGain, 0.0, 1.0);
   // Silhouettes only on real slopes: flat ground seen at a low angle is not an edge.
   float rim = smoothstep(0.75, 0.97, 1.0 - abs(dot(viewDir, n))) * smoothstep(0.04, 0.2, 1.0 - n.y) * uRimStrength;
-  col = mix(col, uLine, max(max(minor * uMinorStrength, major * uMajorStrength), max(crease, rim) * 0.6));
+  // Contours are light projected by the visor (added, not painted), so the ground keeps its real colour.
+  // Two kinds of line: dark ones are painted into a colour-map look (always on), bright ones are visor light (added,
+  // so the ground keeps its colour) and fade with distance like the rest of the AR display.
+  float lineK = max(minor * uMinorStrength, major * uMajorStrength);
+  col = uLineLight > 0.5 ? col + uLine * lineK * ar : mix(col, uLine, lineK);
+  col = mix(col, uLine, max(crease, rim) * 0.6); // optional stylised edges, off by default
   col = mix(col, uLeashLimit, leashLine);
 
   // 7. Fade into the night sky with distance.
@@ -256,6 +267,7 @@ export function createTerrainUniforms() {
     uAmbient: { value: 0.25 },
     uShadow: { value: color(palette.shadow) },
     uLine: { value: color(palette.line) },
+    uLineLight: { value: 0 },
     uSteepColor: { value: color(palette.steep) },
 
     uMinor: { value: 1 },
@@ -265,8 +277,8 @@ export function createTerrainUniforms() {
     uMajorStrength: { value: 0.8 },
     uSlopeWarn: { value: 20 },
     uSlopeMax: { value: 25 },
-    uCreaseGain: { value: 3 },
-    uRimStrength: { value: 0.5 },
+    uCreaseGain: { value: 0 },
+    uRimStrength: { value: 0 },
 
     uO2Grid: { value: emptyTexture() as THREE.Texture },
     uHasO2: { value: 0 },
@@ -286,11 +298,13 @@ export function createTerrainUniforms() {
     uGridCell: { value: 2 },
     uGridN: { value: 2049 },
 
-    uRelief: { value: 3 },
+    uRelief: { value: 1.6 },
+    uArNear: { value: 12 },
+    uArFar: { value: 90 },
     uDetail: { value: 0.8 },
     uFogColor: { value: color(palette.space) },
-    uFogNear: { value: 1200 },
-    uFogFar: { value: 3800 },
+    uFogNear: { value: 300 },
+    uFogFar: { value: 3000 },
   };
 }
 
@@ -315,7 +329,12 @@ export function setTerrainPreset(mat: TerrainMaterial, name: TerrainPresetName):
   u.uRampN.value = Math.min(p.ramp.length, MAX_RAMP);
   u.uCycle.value = p.cycle;
   u.uLine.value.set(p.line);
+  const c = new THREE.Color(p.line);
+  u.uLineLight.value = c.r * 0.3 + c.g * 0.59 + c.b * 0.11 > 0.5 ? 1 : 0; // bright lines glow, dark lines are painted
   u.uMinorStrength.value = p.lineStrength;
+  u.uBanding.value = 'banding' in p ? (p.banding as number) : 0;
+  u.uMinor.value = 'minor' in p ? (p.minor as number) : 1;
+  u.uMajor.value = 'major' in p ? (p.major as number) : 5;
   u.uMajorStrength.value = Math.min(1, p.lineStrength * 2.2);
 }
 

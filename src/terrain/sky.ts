@@ -174,3 +174,75 @@ export function createStarrySky(opts: StarrySkyOptions = {}): StarrySky {
     },
   };
 }
+
+// ---------- Mars daytime sky ----------
+// Real Mars by day: a butterscotch dust haze at the horizon, darker brownish grey overhead, and a small sun
+// (about two-thirds the size seen from Earth) with a cool blue-white halo, because Martian dust scatters blue light
+// forward around the sun.
+
+export interface MarsDaySky {
+  mesh: THREE.Mesh;
+  /** Colour at the horizon: use it for the distance haze so ground and sky meet without a seam. */
+  horizon: THREE.Color;
+  setSun(dir: THREE.Vector3): void;
+  update(camera: THREE.Camera): void;
+  dispose(): void;
+}
+
+const dayVertex = /* glsl */ `
+varying vec3 vDir;
+void main() {
+  vDir = normalize(position);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const dayFragment = /* glsl */ `
+uniform vec3 uSun;
+uniform vec3 uHorizon;
+uniform vec3 uZenith;
+uniform vec3 uHalo;
+varying vec3 vDir;
+void main() {
+  vec3 d = normalize(vDir);
+  float h = max(d.y, 0.0);
+  vec3 col = mix(uHorizon, uZenith, pow(h, 0.5));
+  float s = max(dot(d, normalize(uSun)), 0.0);
+  float ang = acos(min(s, 1.0)); // angle from the sun, radians
+  // The sun from Mars is about 0.35 degrees across (two-thirds of what we see from Earth): a small hard disc,
+  // a tight bright glow, and a wide blue-white aureole from forward-scattering dust.
+  float disc = 1.0 - smoothstep(0.0045, 0.0065, ang);
+  col += uHalo * (disc * 5.0 + exp(-ang * 70.0) * 0.55 + exp(-ang * 9.0) * 0.12 + pow(s, 4.0) * 0.04);
+  gl_FragColor = vec4(col, 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
+export function createMarsDaySky(radius = 4500): MarsDaySky {
+  const horizon = new THREE.Color('#c39a74');
+  const uniforms = {
+    uSun: { value: new THREE.Vector3(0.4, 0.6, -0.3).normalize() },
+    uHorizon: { value: horizon },
+    uZenith: { value: new THREE.Color('#6d574a') },
+    uHalo: { value: new THREE.Color('#dbe6ff') },
+  };
+  const geometry = new THREE.SphereGeometry(radius, 48, 24);
+  const material = new THREE.ShaderMaterial({ uniforms, vertexShader: dayVertex, fragmentShader: dayFragment, side: THREE.BackSide, depthWrite: false });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = -2;
+  return {
+    mesh,
+    horizon,
+    setSun(dir) {
+      uniforms.uSun.value.copy(dir).normalize();
+    },
+    update(camera) {
+      mesh.position.copy(camera.position);
+    },
+    dispose() {
+      geometry.dispose();
+      material.dispose();
+    },
+  };
+}

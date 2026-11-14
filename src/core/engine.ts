@@ -1,5 +1,5 @@
 // Written with AI assistance (Codex). Pure TypeScript; no platform or renderer imports.
-import { contains, validateBounds, validateRoute, TASK_IDS, type Command, type DeepReadonly, type EngineSnapshot, type Mission, type Region, type SemanticEvent, type XZ } from './contracts.ts';
+import { contains, validateBounds, validateRoute, TASK_IDS, PREVIEW_ONLY_TASK_IDS, type Command, type DeepReadonly, type EngineSnapshot, type Mission, type Region, type SemanticEvent, type XZ } from './contracts.ts';
 import { gramsPerHour, integrateLifeSupport, massAndWeight, oxygenWarning, physicsMotion, validatePhysicsOptions, type DemoPhysicsOptions, type PhysicsTelemetry } from './physics.ts';
 export type DemoMovement = { walkMetresPerSecond: number; runMetresPerSecond: number; eyeHeightMetres: number };
 export const DEMO_MOVEMENT = { walkMetresPerSecond: 3, runMetresPerSecond: 8, eyeHeightMetres: 1.7 } as const; // demo approximations; no suit physics
@@ -12,7 +12,10 @@ export function createEngine(region: Region, mission: Mission, canOccupy: (p: XZ
   validateBounds(region.visibleBounds); validateBounds(region.playableBounds);
   const b = { ...region.playableBounds };
   if (!contains(region.visibleBounds, { x: b.minX, z: b.minZ }) || !contains(region.visibleBounds, { x: b.maxX, z: b.maxZ }) || mission.regionId !== region.id || !contains(b, mission.shuttle) || !canOccupy(mission.shuttle)) throw new Error('Invalid region or shuttle');
-  if (new Set(mission.tasks.map(t => t.id)).size !== mission.tasks.length || mission.tasks.some(t => !TASK_IDS.includes(t.type) || !contains(b, t.position) || !canOccupy(t.position) || !['pending','active','complete','failed'].includes(t.status))) throw new Error('Invalid task site');
+  if (new Set(mission.tasks.map(t => t.id)).size !== mission.tasks.length || mission.tasks.some(t =>
+    !(TASK_IDS.some(id => id === t.type) || (!physicsOptions && PREVIEW_ONLY_TASK_IDS.some(id => id === t.type))) ||
+    !contains(b, t.position) || !canOccupy(t.position) ||
+    !['pending','active','complete','failed'].includes(t.status))) throw new Error('Invalid task site');
   if (![speeds.walkMetresPerSecond, speeds.runMetresPerSecond].every(v => Number.isFinite(v) && v > 0)) throw new Error('Invalid demo speed');
   const initial: EngineSnapshot = { simTimeSeconds: 0, paused: false, region: clone(region), player: { position: clone(mission.shuttle), movementMode: 'idle' }, mission: { ...clone(mission), route: validateRoute(mission.route, b) }, resources: { oxygenGrams: null, oxygenCapacityGrams: null }, boundaryWarning: false };
   // Capture caller-owned configuration once; published telemetry has no provider/function.
@@ -70,13 +73,30 @@ export function createEngine(region: Region, mission: Mission, canOccupy: (p: XZ
       else if (command.type === 'task-start' || command.type === 'task-finish') {
         if (state.paused) return;
         const task = state.mission.tasks.find(t => t.id === command.siteId);
-        if (!task || Math.hypot(task.position.x - state.player.position.x, task.position.z - state.player.position.z) > 5) return;
+        if (!task) return;
+        const distance=Math.hypot(task.position.x-state.player.position.x,task.position.z-state.player.position.z);
+        // Visual-only legacy SuperCam laser uses its historic 2-7 m viewing range.
+        const inRange=task.type === 'laser-scan' && !physics
+          ? (command.type === 'task-start' ? distance >= 2 && distance <= 7 : distance <= 7)
+          : distance <= 5;
+        if (!inRange) return;
         if (physics && command.type === 'task-start' && state.mission.tasks.some(t=>t.status === 'active')) return;
         if (command.type === 'task-start' && task.status === 'pending') { state = { ...state, mission: { ...state.mission, tasks: state.mission.tasks.map(t => t === task ? { ...t, status: 'active' } : t) } }; emit({ type: 'task-started', siteId: task.id, taskId: task.type, simTimeSeconds: state.simTimeSeconds }); }
         if (command.type === 'task-finish' && task.status === 'active') { state = { ...state, mission: { ...state.mission, tasks: state.mission.tasks.map(t => t === task ? { ...t, status: 'complete' } : t) } }; emit({ type: 'task-completed', siteId: task.id, taskId: task.type, simTimeSeconds: state.simTimeSeconds }); }
       }
       if (physics && (command.type === 'task-start' || command.type === 'task-finish')) state={...state,player:{...state.player,movementMode:'idle'},physics:idleTelemetry()};
       publish();
+    },
+    // Legacy Rachel preview may adjust the camera pose for kneeling. Disabled for
+    // physics-enabled EVA to prevent teleports or bypassing terrain/O2 gates.
+    setPosition(position: XZ): boolean {
+      if (disposed || physics || state.paused || state.mission.status === 'failed' ||
+          !contains(b,position) || !canOccupy(position)) return false;
+      if (state.player.position.x === position.x && state.player.position.z === position.z) return true;
+      direction={x:0,z:0}; running=false;
+      state={...state,player:{position:clone(position),movementMode:'idle'}};
+      publish();
+      return true;
     },
     step(seconds: number) {
       if (!Number.isFinite(seconds) || seconds < 0 || seconds > 0.25) throw new Error('Step must be 0..0.25 seconds');

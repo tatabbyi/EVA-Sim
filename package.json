@@ -9,6 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
+    "start": "node scripts/dev-electron.mjs",
     "dev:electron": "node scripts/dev-electron.mjs",
     "start:electron": "electron .",
     "dist:linux": "npm run build && electron-builder --linux --x64 --publish never",

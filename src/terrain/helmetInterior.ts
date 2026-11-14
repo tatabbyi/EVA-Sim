@@ -1,21 +1,28 @@
 // Written with AI assistance (Claude).
 // Owner: Rachel. The inside of the helmet at chin level, as real 3D objects between your eye and the visor:
 // a foam microphone on a boom, white valve caps, a connector, cables, the yellow drink tube, a foam pad and the
-// cream neck ring (after photos of real EVA helmets). Drawn in its own small scene after the world, so it isn't
-// bent by the dome lens (it's inside the dome) and always sits in front of the terrain.
-// Sways with the helmet: pass the head-sway offset each frame.
+// cream neck ring (after photos of real EVA helmets). It has its own transparent canvas inside the helmet layer,
+// above the visor seal and fabric (it is physically closer to your face than they are) and below the HUD text.
+// It moves with the helmet because that layer sways, so it only redraws when the size changes.
 
 import * as THREE from 'three';
 import { createFabricTexture, createNoiseTexture } from './noiseTexture';
 
 export interface HelmetInterior {
-  /** Draw on top of what's already on screen. offset: head-sway offset of the helmet in CSS pixels. */
-  render(renderer: THREE.WebGLRenderer, widthPx: number, heightPx: number, offset: { x: number; y: number }): void;
+  /** Redraws only if the host changed size; cheap to call every frame. */
+  render(): void;
   dispose(): void;
 }
 
-export function createHelmetInterior(fovDeg = 80): HelmetInterior {
+/** host: the helmet's interior slot (HelmetHud interiorRef). */
+export function createHelmetInterior(host: HTMLElement, fovDeg = 80): HelmetInterior {
+  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  renderer.setClearColor(0x000000, 0);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  host.replaceChildren(renderer.domElement);
   const scene = new THREE.Scene();
+  const kit = new THREE.Group(); // everything except the neck ring; raised so it sits just above the visor seal
+  scene.add(kit);
   const camera = new THREE.PerspectiveCamera(fovDeg, 1, 0.01, 5);
   const disposables: { dispose(): void }[] = [];
   const keep = <T extends { dispose(): void }>(x: T) => (disposables.push(x), x);
@@ -41,10 +48,10 @@ export function createHelmetInterior(fovDeg = 80): HelmetInterior {
   const collarCloth = keep(createFabricTexture('#e7e0d2', 0.25, 256, 13, 6));
   const ringMat = keep(new THREE.MeshStandardMaterial({ map: collarCloth, roughness: 0.92 }));
 
-  const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
+  const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = kit) => {
     const mesh = new THREE.Mesh(keep(geo), mat);
     mesh.position.set(x, y, z);
-    scene.add(mesh);
+    parent.add(mesh);
     return mesh;
   };
   const tube = (pts: [number, number, number][], radius: number, mat: THREE.Material) => {
@@ -53,7 +60,7 @@ export function createHelmetInterior(fovDeg = 80): HelmetInterior {
   };
 
   // Suit collar: a padded cream fabric ring just below the chin; the hardware below sits in it.
-  const ring = add(new THREE.TorusGeometry(0.36, 0.065, 24, 96, Math.PI * 1.2), ringMat, 0, -0.43, -0.1);
+  const ring = add(new THREE.TorusGeometry(0.36, 0.065, 24, 128), ringMat, 0, -0.43, -0.1, scene); // a full ring: no cut ends
   ring.rotation.set(Math.PI / 2 + 0.25, 0, -Math.PI * 0.1 - Math.PI);
 
   // Left valve cap: white disc with a rim groove and a darker centre.
@@ -63,9 +70,9 @@ export function createHelmetInterior(fovDeg = 80): HelmetInterior {
   grooveL.rotation.x = Math.PI / 2;
   grooveL.position.y = 0.0125;
   capL.add(grooveL);
-  capL.position.set(-0.2, -0.255, -0.33);
+  capL.position.set(-0.26, -0.255, -0.33);
   capL.rotation.set(1.2, 0.25, 0);
-  scene.add(capL);
+  kit.add(capL);
 
   // Right valve knob: white with a grey hub and a metal screw.
   const capR = new THREE.Group();
@@ -73,12 +80,12 @@ export function createHelmetInterior(fovDeg = 80): HelmetInterior {
   const hub = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.012, 0.012, 0.034, 24)), greyPlastic);
   const screw = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.004, 0.004, 0.036, 12)), metal);
   capR.add(hub, screw);
-  capR.position.set(0.21, -0.245, -0.33);
+  capR.position.set(0.27, -0.245, -0.33);
   capR.rotation.set(1.15, -0.3, 0);
-  scene.add(capR);
+  kit.add(capR);
 
   // Microphone: foam capsule on a thin boom from the left.
-  tube([[-0.24, -0.33, -0.24], [-0.17, -0.27, -0.27], [-0.09, -0.225, -0.3]], 0.0045, darkRubber);
+  tube([[-0.32, -0.6, -0.1], [-0.24, -0.33, -0.24], [-0.17, -0.27, -0.27], [-0.09, -0.225, -0.3]], 0.0045, darkRubber);
   const mic = add(new THREE.CapsuleGeometry(0.02, 0.028, 8, 20), micFoam, -0.075, -0.215, -0.3);
   mic.rotation.set(0.2, 0, Math.PI / 2 - 0.35);
 
@@ -88,27 +95,44 @@ export function createHelmetInterior(fovDeg = 80): HelmetInterior {
   add(new THREE.CylinderGeometry(0.006, 0.007, 0.018, 12), darkRubber, 0.006, -0.247, -0.305).rotation.set(0.5, 0, 1.2);
 
   // Cables: green and black, running down to the neck ring.
-  tube([[0.006, -0.25, -0.305], [-0.02, -0.27, -0.29], [-0.06, -0.3, -0.27], [-0.12, -0.34, -0.24]], 0.0028, greenWire);
-  tube([[-0.06, -0.225, -0.3], [-0.04, -0.26, -0.29], [0.0, -0.3, -0.27], [0.05, -0.35, -0.24]], 0.003, blackWire);
+  tube([[0.006, -0.25, -0.305], [-0.02, -0.27, -0.29], [-0.06, -0.3, -0.27], [-0.12, -0.34, -0.24], [-0.17, -0.6, -0.1]], 0.0028, greenWire);
+  tube([[-0.06, -0.225, -0.3], [-0.04, -0.26, -0.29], [0.0, -0.3, -0.27], [0.05, -0.35, -0.24], [0.09, -0.6, -0.1]], 0.003, blackWire);
 
   // Yellow drink tube looping up from the right, and the foam pad beside it.
-  tube([[0.26, -0.36, -0.22], [0.16, -0.29, -0.29], [0.09, -0.235, -0.31], [0.05, -0.245, -0.315], [0.07, -0.28, -0.3]], 0.0075, yellowTube);
+  tube([[0.32, -0.62, -0.1], [0.26, -0.36, -0.22], [0.16, -0.29, -0.29], [0.09, -0.235, -0.31], [0.05, -0.245, -0.315], [0.07, -0.28, -0.3]], 0.0075, yellowTube);
   const pad = add(new THREE.BoxGeometry(0.06, 0.03, 0.03), padFoam, 0.11, -0.27, -0.32);
   pad.rotation.set(0.4, -0.2, 0.05);
 
+  // Shrink the hardware about its own centre (so cables stay attached) and sit it on the visor seal, in front of
+  // the chin: small, low and to the sides, like in a real helmet, not filling the view.
+  const anchor = new THREE.Vector3(0, -0.225, -0.31);
+  for (const child of kit.children) child.position.sub(anchor);
+  kit.position.copy(anchor).add(new THREE.Vector3(0, 0.035, 0));
+  kit.scale.setScalar(0.6);
+  ring.position.y -= 0.03; // only the top of the neck ring peeks in at the very bottom
+  let lastW = 0, lastH = 0;
+
   return {
-    render(renderer, widthPx, heightPx, offset) {
-      camera.aspect = widthPx / heightPx;
-      // Shift the view by the head sway, in the same CSS pixels the helmet frame moves by.
-      camera.setViewOffset(widthPx, heightPx, -offset.x, -offset.y, widthPx, heightPx);
-      const autoClear = renderer.autoClear;
-      renderer.autoClear = false;
-      renderer.clearDepth();
+    render() {
+      // The slot reaches past the helmet layer (HelmetHud.css .hud-interior), so when you look down or to the side
+      // and the helmet slides, the hardware never ends at an edge. The view stays set up for the helmet layer itself,
+      // widened to the slot, so the hardware sits in the same place on the glass.
+      const layer = host.parentElement;
+      const w = host.clientWidth, h = host.clientHeight;
+      if (!layer || (w === lastW && h === lastH)) return;
+      lastW = w;
+      lastH = h;
+      const lw = layer.clientWidth, lh = layer.clientHeight;
+      if (!lw || !lh || !w || !h) return;
+      renderer.setSize(w, h);
+      camera.aspect = lw / lh;
+      camera.setViewOffset(lw, lh, host.getBoundingClientRect().left - layer.getBoundingClientRect().left, 0, w, h); // slot starts left of the layer
       renderer.render(scene, camera);
-      renderer.autoClear = autoClear;
     },
     dispose() {
       for (const d of disposables) d.dispose();
+      renderer.dispose();
+      host.replaceChildren();
     },
   };
 }

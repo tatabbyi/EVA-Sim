@@ -69,14 +69,15 @@ export function rockGeometry(seed: number): THREE.BufferGeometry {
 /**
  * ground: world position on the terrain where the rock sits. seed varies the rock shape.
  */
-export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
+/** mode 'abrade': the same tool with a grinding head: it only grinds the surface and leaves a fresh patch, no core. */
+export function createSampleSite(ground: THREE.Vector3, seed = 1, mode: 'core' | 'abrade' = 'core'): SampleSite {
   const group = new THREE.Group();
   group.name = 'sample-site';
   const disposables: { dispose(): void }[] = [];
   const keep = <T extends { dispose(): void }>(x: T) => (disposables.push(x), x);
 
   // Beacon so the stop can be seen from far away
-  const beacon = createWaypointBeacon({ color: palette.objective, height: 14, radius: 0.2 });
+  const beacon = createWaypointBeacon();
   beacon.group.position.copy(ground);
   group.add(beacon.group);
 
@@ -91,7 +92,7 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
   const rockTop = rock.position.clone().add(new THREE.Vector3(0, rockGeo.boundingBox!.max.y, 0));
 
   // Fresh abraded patch that grows while drilling
-  const freshMat = keep(new THREE.MeshStandardMaterial({ color: '#b8a189', roughness: 0.7 }));
+  const freshMat = keep(new THREE.MeshStandardMaterial({ color: mode === 'abrade' ? '#d4c1a6' : '#b8a189', roughness: 0.7 }));
   const patch = new THREE.Mesh(keep(new THREE.CircleGeometry(0.07, 28)), freshMat);
   patch.rotation.x = -Math.PI / 2;
   patch.position.copy(rockTop).add(new THREE.Vector3(0, 0.004, 0));
@@ -135,7 +136,7 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
     { grip: new THREE.Vector3(-0.1, 0.34, 0.01), palm: new THREE.Vector3(0, 0.34, 0) },
   ];
   // Elbows, in camera space: low and to the sides, so only the forearms reach into view.
-  const ELBOWS = [new THREE.Vector3(0.27, -0.44, -0.3), new THREE.Vector3(-0.27, -0.44, -0.3)];
+  const ELBOWS = [new THREE.Vector3(0.24, -0.62, -0.1), new THREE.Vector3(-0.24, -0.62, -0.1)]; // low, close to the body
   const elbow = new THREE.Vector3(), gripAt = new THREE.Vector3(), palmAt = new THREE.Vector3();
   const placeArms = (camera: THREE.Camera) => {
     camera.updateMatrixWorld();
@@ -192,7 +193,10 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
   let state: SampleState = 'idle';
   let elapsed = 0;
   let progress = 0;
-  const raised = rockTop.clone().add(new THREE.Vector3(0, 0.2, 0));
+  const drillEnd = rockTop.clone().add(new THREE.Vector3(0, mode === 'abrade' ? -0.008 : -0.05, 0)); // abrading only grinds the skin
+  // Where you hold the corer between steps, in camera space: in front of your chest, below eye level.
+  const HOLD = new THREE.Vector3(0.02, -0.62, -0.5);
+  const holdAt = new THREE.Vector3();
   const stowTarget = new THREE.Vector3();
   const offsetFromEye = new THREE.Vector3(0.18, -0.6, -0.45); // just below and in front of the visor
 
@@ -229,10 +233,12 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
         }
         state = phase;
         tool.visible = phase !== 'done';
+        camera.updateMatrixWorld();
+        holdAt.copy(HOLD).applyMatrix4(camera.matrixWorld);
         tool.scale.setScalar(1);
 
         if (phase === 'lowering') {
-          tool.position.copy(rockTop).add(new THREE.Vector3(0, 0.15 * (1 - ease(local)), 0)); // held low in front of you, lowered onto the rock
+          tool.position.lerpVectors(holdAt, rockTop, ease(local)); // from in front of your chest, reach down onto the rock
           lightMat.color.set(palette.warning);
         } else if (phase === 'drilling') {
           tool.position.copy(rockTop);
@@ -244,13 +250,13 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
           lightMat.color.set(Math.sin(time * 18) > 0 ? palette.ok : '#0b3d1c');
           emitDust(dt);
         } else if (phase === 'raising') {
-          core.visible = true;
-          tool.position.copy(rockTop).add(new THREE.Vector3(0, 0.2 * ease(local) - 0.05 * (1 - local), 0));
+          core.visible = mode === 'core';
+          tool.position.lerpVectors(drillEnd, holdAt, ease(local)); // bring the core back up to your chest
           bit.rotation.y += dt * 12 * (1 - local);
           lightMat.color.set(palette.ok);
         } else if (phase === 'stowing') {
           stowTarget.copy(offsetFromEye).applyMatrix4(camera.matrixWorld);
-          tool.position.lerpVectors(raised, stowTarget, ease(local));
+          tool.position.lerpVectors(holdAt, stowTarget, ease(local));
         } else {
           // done: sample sealed and stowed
           tool.visible = false;
