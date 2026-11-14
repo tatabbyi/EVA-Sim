@@ -218,8 +218,8 @@ function Bar({ bar, colour, top, bottom, dir, angle, font, gid }: {
     <g className={`hud-bar hud-bar--${bar.level ?? 'ok'}`} style={{ '--bar-colour': colour } as CSSProperties}>
       <defs>
         <linearGradient id={gid} gradientUnits="userSpaceOnUse" x1={bottom.x} y1={bottom.y} x2={top.x} y2={top.y}>
-          <stop offset="0" stopColor={colour} stopOpacity="0.85" />
-          <stop offset="1" stopColor={colour} stopOpacity="0.6" />
+          <stop offset="0" stopColor={colour} stopOpacity="0.62" />
+          <stop offset="1" stopColor={colour} stopOpacity="0.38" />
         </linearGradient>
       </defs>
       {/* glass tube: coloured rim, dark translucent inside, a shine line down one side */}
@@ -229,6 +229,8 @@ function Bar({ bar, colour, top, bottom, dir, angle, font, gid }: {
       {f > 0.005 && (
         <>
           <path d={fill} className="hud-bar-fill" stroke={`url(#${gid})`} />
+          {/* a soft highlight down the liquid, like light on a glass tube */}
+          <path d={fill} className="hud-bar-fill-shine" transform={`translate(${s(mul(outward, -font * 0.32))})`} />
         </>
       )}
       {ticks}

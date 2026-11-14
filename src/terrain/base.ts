@@ -411,8 +411,67 @@ export function createSpaceBase(centre: THREE.Vector3, facing: THREE.Vector3, he
     footprint.push({ x: 6.8, z: 7.5, r: 3.2 });
   };
 
+  const outfitting = () => {
+    const g0 = ground(0, 0), gA = ground(0, 5.2);
+    // Regolith shielding berm piled round the lower drum (radiation protection), open at the airlock.
+    const bermMat = keep(new THREE.MeshStandardMaterial({ color: '#9c7556', roughness: 1, bumpMap: grime, bumpScale: 0.08 }));
+    const berm = put(new THREE.TorusGeometry(4.6, 0.95, 14, 72, Math.PI * 2 - 1.15), bermMat, 0, g0 + 0.12, 0);
+    berm.rotation.set(Math.PI / 2, 0, Math.PI / 2 + 0.575); // flat, with the gap facing the airlock
+    berm.scale.set(1, 1, 0.55); // a low, squashed mound
+    // Two finned radiator panels behind the habitat
+    for (const x of [-4.8, 4.8]) {
+      const z = -5, rad = new THREE.Group();
+      rad.position.set(x, ground(x, z), z);
+      rad.rotation.y = x < 0 ? 0.6 : -0.6;
+      local.add(rad);
+      for (let i = 0; i < 8; i++) put(new THREE.BoxGeometry(0.04, 2.2, 1.0), plain, -0.53 + i * 0.15, 1.45, 0, rad);
+      put(new THREE.BoxGeometry(1.2, 0.08, 1.1), darkMetal, 0, 0.32, 0, rad);
+      put(new THREE.BoxGeometry(1.2, 0.06, 0.08), steel, 0, 2.58, 0, rad);
+      for (const sx of [-0.5, 0.5]) put(new THREE.CylinderGeometry(0.04, 0.05, 0.32, 8), steel, sx, 0.16, 0, rad);
+      footprint.push({ x, z, r: 1 });
+    }
+    // Coolant pipes from the tanks up the hull, with brackets
+    for (const k of [-1, 1]) {
+      const x = k * 1.4;
+      const pts = [new THREE.Vector3(x, g0 + 0.55, -5.0), new THREE.Vector3(x, g0 + 0.85, -4.25), new THREE.Vector3(x, g0 + 2.0, -3.78), new THREE.Vector3(x, g0 + 4.7, -3.78)];
+      put(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.055, 10), steel, 0, 0, 0);
+      for (let y = 1.4; y < 4.6; y += 1) put(new THREE.BoxGeometry(0.18, 0.06, 0.16), darkMetal, x, g0 + y, -3.86);
+    }
+    // Roof: weather mast with a spinning anemometer, and the roof hatch
+    const mastY = g0 + 5 + Math.sqrt(16 - 1.8 * 1.8 - 1.0 * 1.0);
+    put(new THREE.CylinderGeometry(0.03, 0.04, 1.6, 8), steel, -1.8, mastY + 0.8, 1.0);
+    const cups = new THREE.Group();
+    cups.position.set(-1.8, mastY + 1.65, 1.0);
+    local.add(cups);
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2;
+      const arm = put(new THREE.CylinderGeometry(0.008, 0.008, 0.3, 6), steel, Math.cos(a) * 0.15, 0, Math.sin(a) * 0.15, cups);
+      arm.rotation.set(0, -a, Math.PI / 2);
+      put(new THREE.SphereGeometry(0.045, 10, 8, 0, Math.PI), plain, Math.cos(a) * 0.3, 0, Math.sin(a) * 0.3, cups).rotation.y = -a;
+    }
+    animations.push((t) => (cups.rotation.y = t * 2.5));
+    put(new THREE.TorusGeometry(0.62, 0.06, 10, 40), darkMetal, 0, g0 + 8.98, 0).rotation.x = Math.PI / 2;
+    put(new THREE.CylinderGeometry(0.58, 0.58, 0.06, 32), plain, 0, g0 + 9.0, 0);
+    // Suitports on the airlock tunnel: two suit backpacks docked to the outside wall
+    for (const z of [4.55, 5.65]) {
+      const port = put(new THREE.TorusGeometry(0.32, 0.045, 10, 32), darkMetal, 1.27, gA + 1.3, z);
+      port.rotation.y = Math.PI / 2;
+      put(new RoundedBoxGeometry(0.3, 0.72, 0.56, 3, 0.06), plain, 1.47, gA + 1.3, z); // backpack
+      put(new RoundedBoxGeometry(0.06, 0.3, 0.4, 2, 0.02), darkMetal, 1.64, gA + 1.32, z); // its control panel
+    }
+    // Grating platform in front of the hatch
+    const gP = ground(0, 7.7);
+    put(new THREE.BoxGeometry(2.6, 0.08, 1.6), darkMetal, 0, gP + 0.2, 7.7);
+    for (let i = 0; i < 9; i++) put(new THREE.BoxGeometry(2.5, 0.02, 0.04), steel, 0, gP + 0.25, 7.0 + i * 0.17);
+    for (const [x, z] of [[-1.2, 7.0], [1.2, 7.0], [-1.2, 8.4], [1.2, 8.4]]) put(new THREE.CylinderGeometry(0.05, 0.05, 0.2, 8), steel, x, gP + 0.1, z);
+    // Cargo crates by the lander
+    const crates: [number, number, number, THREE.Material][] = [[13.6, -1.6, 0, plain], [15.0, -1.4, 0, orange], [14.2, -1.5, 1, plain]];
+    for (const [x, z, level, mat] of crates) put(new RoundedBoxGeometry(1.2, 0.9, 0.9, 3, 0.05), mat, x, ground(x, z) + 0.45 + level * 0.9, z).rotation.y = 0.2;
+    footprint.push({ x: 0, z: 0, r: 5.8 }, { x: 0, z: 7.7, r: 1.6 }, { x: 14.3, z: -1.5, r: 1.6 });
+  };
+
   // Base modules in build order. Expansion goes here.
-  const MODULES = [habitat, airlock, greenhouseModule, solarField, lander, comms, rover];
+  const MODULES = [habitat, airlock, greenhouseModule, solarField, lander, comms, rover, outfitting];
   for (const build of MODULES) build();
 
   // Everything solid casts and receives sun shadows.

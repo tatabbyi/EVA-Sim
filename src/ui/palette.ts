@@ -60,20 +60,37 @@ export interface TerrainPreset {
   banding?: number; // 0 smooth blend between colours, 1 hard steps (one colour per minor contour)
   minor?: number; // contour spacing, m (default 1)
   major?: number; // heavier contour every this many m (default 5)
+  /** 'slope': colour shows how steep the ground is (SLOPE_CLASSES), not its height. */
+  colorBy?: 'height' | 'slope';
 }
+
+/** Walkability by slope: what each ground colour means. Easy ground (most of it: bare, under 8°) keeps the natural
+ *  Mars colour, so colour only shows where the ground gets harder: sand, tan, terracotta, then clay red. Over 24° is
+ *  the planner's limit for walking straight up or down, so red ground is only crossed sideways or in a zigzag.
+ *  On the plan map, easy ground is plain paper (MAP_BARE) instead of brown. */
+export const SLOPE_CLASSES = [
+  { colour: '#8c6248', upTo: 8, label: 'Easy' }, // natural ground, as with topology off
+  { colour: '#c8a669', upTo: 15, label: 'Gentle' },
+  { colour: '#c7926a', upTo: 20, label: 'Moderate' },
+  { colour: '#c37861', upTo: 24, label: 'Steep' },
+  { colour: '#c26860', upTo: 90, label: 'Zigzag only' },
+] as const;
+export const MAP_BARE = '#ece4d8';
 
 export const terrainPresets = {
   muted: {
-    // Muted sand, tan, terracotta, clay red and teal: one colour per 50 cm of height, nearly stepped, with a blue
-    // contour line at every change, so even the gentle plain shows its topology at a glance.
-    label: 'Muted topology',
-    ramp: ['#c8a669', '#c7926a', '#c37861', '#c26860', '#548278'],
-    cycle: 2.5,
+    // Walkability: colour by slope (SLOPE_CLASSES): easy ground keeps the natural Mars colour, then sand gentle,
+    // tan moderate, terracotta steep, clay red zigzag only. Height is in the blue contour lines (every 2 m, bolder
+    // every 10 m).
+    label: 'Walkability (slope)',
+    ramp: ['#8c6248', '#c8a669', '#c7926a', '#c37861', '#c26860'],
+    cycle: 0,
     line: '#6fe3ff',
     lineStrength: 0.3,
-    banding: 0.7,
-    minor: 0.5,
-    major: 2.5,
+    banding: 0,
+    minor: 2,
+    major: 10,
+    colorBy: 'slope',
   },
   realistic: {
     label: 'Realistic (AR contours)',

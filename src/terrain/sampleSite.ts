@@ -12,7 +12,7 @@ import { palette } from '../ui/palette';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createNoiseTexture } from './noiseTexture';
 import { createWaypointBeacon } from './beacon';
-import { createSuitArm } from './suitArm';
+import { createSuitArm, headingFrame, reachElbow } from './suitArm';
 
 export type SampleState = 'idle' | 'lowering' | 'drilling' | 'raising' | 'stowing' | 'done';
 
@@ -135,16 +135,22 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1, mode: 'core' |
     { grip: new THREE.Vector3(0.128, 0.36, 0), palm: new THREE.Vector3(0.095, 0.36, 0) },
     { grip: new THREE.Vector3(-0.1, 0.34, 0.01), palm: new THREE.Vector3(0, 0.34, 0) },
   ];
-  // Elbows, in camera space: low and to the sides, so only the forearms reach into view.
-  const ELBOWS = [new THREE.Vector3(0.24, -0.62, -0.1), new THREE.Vector3(-0.24, -0.62, -0.1)]; // low, close to the body
-  const elbow = new THREE.Vector3(), gripAt = new THREE.Vector3(), palmAt = new THREE.Vector3();
-  const placeArms = (camera: THREE.Camera) => {
-    camera.updateMatrixWorld();
+  // Shoulders and the way each elbow bends, in the body's heading frame (headingFrame: x right, y up, -z forward,
+  // from the eye). Each elbow is solved from its shoulder and hand, so the arms reach naturally and never cross.
+  const SHOULDERS = [new THREE.Vector3(0.21, -0.28, 0.02), new THREE.Vector3(-0.21, -0.28, 0.02)];
+  const BENDS = [new THREE.Vector3(0.6, -1, 0.25), new THREE.Vector3(-0.6, -1, 0.25)]; // down and out, a little back
+  const frame = new THREE.Matrix4(), turn = new THREE.Matrix3();
+  const elbow = new THREE.Vector3(), shoulder = new THREE.Vector3(), bend = new THREE.Vector3();
+  const gripAt = new THREE.Vector3(), palmAt = new THREE.Vector3();
+  const placeArms = () => {
     tool.updateMatrixWorld(true);
+    turn.setFromMatrix4(frame);
     [rightArm, leftArm].forEach((arm, i) => {
       tool.localToWorld(gripAt.copy(HOLDS[i].grip));
       tool.localToWorld(palmAt.copy(HOLDS[i].palm));
-      arm.pose(gripAt, palmAt, elbow.copy(ELBOWS[i]).applyMatrix4(camera.matrixWorld));
+      shoulder.copy(SHOULDERS[i]).applyMatrix4(frame);
+      reachElbow(shoulder, gripAt, bend.copy(BENDS[i]).applyMatrix3(turn), elbow);
+      arm.pose(gripAt, palmAt, elbow, shoulder);
       arm.root.visible = true;
     });
   };
@@ -194,11 +200,12 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1, mode: 'core' |
   let elapsed = 0;
   let progress = 0;
   const drillEnd = rockTop.clone().add(new THREE.Vector3(0, mode === 'abrade' ? -0.008 : -0.05, 0)); // abrading only grinds the skin
-  // Where you hold the corer between steps, in camera space: in front of your chest, below eye level.
-  const HOLD = new THREE.Vector3(0.02, -0.62, -0.5);
+  // Where you hold the corer between steps, in the heading frame: grips at chest height in front of you (the tool's
+  // origin is its bit tip, 0.36 m below the grips). Stowing puts it away down by your right hip.
+  const HOLD = new THREE.Vector3(0.02, -0.74, -0.42);
   const holdAt = new THREE.Vector3();
   const stowTarget = new THREE.Vector3();
-  const offsetFromEye = new THREE.Vector3(0.18, -0.6, -0.45); // just below and in front of the visor
+  const offsetFromEye = new THREE.Vector3(0.3, -1.0, -0.12);
 
   return {
     group,
@@ -233,8 +240,9 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1, mode: 'core' |
         }
         state = phase;
         tool.visible = phase !== 'done';
-        camera.updateMatrixWorld();
-        holdAt.copy(HOLD).applyMatrix4(camera.matrixWorld);
+        headingFrame(camera, frame);
+        holdAt.copy(HOLD).applyMatrix4(frame);
+        tool.quaternion.setFromRotationMatrix(frame); // grip on your right, whichever way you face
         tool.scale.setScalar(1);
 
         if (phase === 'lowering') {
@@ -255,7 +263,7 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1, mode: 'core' |
           bit.rotation.y += dt * 12 * (1 - local);
           lightMat.color.set(palette.ok);
         } else if (phase === 'stowing') {
-          stowTarget.copy(offsetFromEye).applyMatrix4(camera.matrixWorld);
+          stowTarget.copy(offsetFromEye).applyMatrix4(frame);
           tool.position.lerpVectors(holdAt, stowTarget, ease(local));
         } else {
           // done: sample sealed and stowed
@@ -264,7 +272,7 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1, mode: 'core' |
           beacon.group.scale.y = 0.2;
         }
       }
-      if (tool.visible) placeArms(camera);
+      if (tool.visible) placeArms();
       else rightArm.root.visible = leftArm.root.visible = false;
       updateDust(dt);
     },

@@ -3,12 +3,15 @@
 // operations console at the back and click its screen to plan the EVA, then walk to the airlock hatch at the front
 // and go out. Same layout as the habitat outside (an 8 m drum, airlock on the +z side).
 // In the room: the console deck (main screen, where the Setup UI is laid over as HTML, plus two side screens and a
-// keyboard), the airlock hatch with stencils and a ready light, an EVA suit on its stand, lockers, a ladder up to a
+// keyboard), the airlock hatch with stencils and a ready light, your EVA suit on its stand, lockers, a ladder up to a
 // ceiling hatch (the upper floor comes with the base expansion), and a window out onto the plain.
+// Your EVA suit waits on its donning stand beside the hatch (suitStand.ts): aim at it or the hatch and press E to suit up.
 
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { createConsoleDesk } from './consoleDesk';
+import { createSuitStand } from './suitStand';
 
 export const ROOM_EYE = 1.65; // standing eye height, m
 const RADIUS = 4; // habitat drum
@@ -58,24 +61,25 @@ function canvasTexture(w: number, h: number, draw: (ctx: CanvasRenderingContext2
 function readoutTexture(title: string, rows: [string, string][], seed: number) {
   return canvasTexture(768, 480, (ctx) => {
     const g = ctx.createLinearGradient(0, 0, 0, 480);
-    g.addColorStop(0, '#08141d');
-    g.addColorStop(1, '#040a10');
+    g.addColorStop(0, '#f3eee6');
+    g.addColorStop(1, '#ebe4d9');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 768, 480);
-    ctx.fillStyle = '#6fe3ff';
+    ctx.fillStyle = '#3a2a20';
     ctx.font = '600 30px Inter, system-ui, sans-serif';
     ctx.fillText(title.split('').join(' '), 36, 58);
+    ctx.fillStyle = '#ddd3c4';
     ctx.fillRect(36, 74, 696, 2);
     ctx.font = '26px Inter, system-ui, sans-serif';
     rows.forEach(([k, v], i) => {
-      ctx.fillStyle = 'rgba(223,244,255,0.6)';
+      ctx.fillStyle = '#8a7462';
       ctx.fillText(k, 36, 122 + i * 42);
-      ctx.fillStyle = '#e6f7ff';
+      ctx.fillStyle = '#3a2a20';
       ctx.textAlign = 'right';
       ctx.fillText(v, 732, 122 + i * 42);
       ctx.textAlign = 'left';
     });
-    ctx.strokeStyle = 'rgba(111,227,255,0.8)';
+    ctx.strokeStyle = '#548278'; // teal trace
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     for (let x = 0; x <= 696; x += 6) {
@@ -174,17 +178,17 @@ function signTexture(text: string, sub: string) {
 function idleScreenTexture() {
   return canvasTexture(1024, 576, (ctx) => {
     const g = ctx.createLinearGradient(0, 0, 0, 576);
-    g.addColorStop(0, '#08121b');
-    g.addColorStop(1, '#050b11');
+    g.addColorStop(0, '#f3eee6');
+    g.addColorStop(1, '#ebe4d9');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 1024, 576);
-    ctx.fillStyle = '#6fe3ff';
+    ctx.fillStyle = '#3a2a20';
     ctx.font = '600 44px Inter, system-ui, sans-serif';
-    ctx.fillText('S E T U P', 48, 80);
+    ctx.fillText('Plan the EVA', 48, 80);
     ctx.font = '22px Inter, system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(223,244,255,0.65)';
-    ctx.fillText('EVA PLANNING · CLICK TO USE', 260, 78);
-    ctx.strokeStyle = 'rgba(111,227,255,0.35)';
+    ctx.fillStyle = '#8a7462';
+    ctx.fillText('click to use', 330, 78);
+    ctx.strokeStyle = 'rgba(84,130,120,0.45)';
     ctx.strokeRect(48, 110, 300, 420);
     ctx.strokeRect(372, 110, 604, 420);
     ctx.lineWidth = 2;
@@ -224,14 +228,11 @@ export function createBaseInterior(renderer: THREE.WebGLRenderer): BaseInterior 
   scene.environmentIntensity = 0.35;
 
   // ---------- materials ----------
-  const graphite = keep(new THREE.MeshStandardMaterial({ color: '#23272e', roughness: 0.45, metalness: 0.35 }));
-  const bezelMat = keep(new THREE.MeshStandardMaterial({ color: '#0c0e11', roughness: 0.35, metalness: 0.4 }));
-  const trim = keep(new THREE.MeshBasicMaterial({ color: '#6fe3ff' }));
+  // Habitat fit-out: off-white moulded panels with light grey fronts, like a real spacecraft interior.
+  const bezelMat = keep(new THREE.MeshStandardMaterial({ color: '#d9d5cd', roughness: 0.5, metalness: 0.1 }));
+  const trim = keep(new THREE.MeshBasicMaterial({ color: '#e0b872' })); // warm sand light strip
   const steel = keep(new THREE.MeshStandardMaterial({ color: '#a9b0b8', roughness: 0.3, metalness: 0.9 }));
   const panelWhite = keep(new THREE.MeshStandardMaterial({ color: '#dfe2e6', roughness: 0.55, metalness: 0.1 }));
-  const fabric = keep(new THREE.MeshStandardMaterial({ color: '#ece8df', roughness: 0.92 }));
-  const darkFabric = keep(new THREE.MeshStandardMaterial({ color: '#b9b3a6', roughness: 0.9 }));
-  const gold = keep(new THREE.MeshStandardMaterial({ color: '#d2a447', roughness: 0.18, metalness: 1, side: THREE.DoubleSide }));
 
   // ---------- room: floor, curved wall, ceiling, light ring, window ----------
   put(new THREE.CircleGeometry(RADIUS, 72), keep(new THREE.MeshStandardMaterial({ map: keep(floorTexture()), roughness: 0.6, metalness: 0.5 })), 0, 0, 0).rotation.x = -Math.PI / 2;
@@ -248,37 +249,13 @@ export function createBaseInterior(renderer: THREE.WebGLRenderer): BaseInterior 
   put(new RoundedBoxGeometry(1.6, 0.86, 0.14, 4, 0.08), keep(new THREE.MeshStandardMaterial({ color: '#2b3038', roughness: 0.4, metalness: 0.6 })), 0, 0, 0, win);
   put(new THREE.PlaneGeometry(1.42, 0.7), keep(new THREE.MeshBasicMaterial({ map: keep(windowTexture()) })), 0, 0, 0.075, win);
 
-  // ---------- console deck at the back ----------
+  // ---------- console deck at the back (the workstation itself: src/terrain/consoleDesk.ts) ----------
   const CONSOLE_Z = -3.15;
-  [-0.62, 0, 0.62].forEach((a) => {
-    const seg = new THREE.Group();
-    seg.position.set(Math.sin(a) * 1.0, 0, CONSOLE_Z + 0.55 + (1 - Math.cos(a)) * 1.0);
-    seg.rotation.y = -a;
-    scene.add(seg);
-    put(new RoundedBoxGeometry(1.25, 0.06, 0.7, 3, 0.02), graphite, 0, 0.78, 0, seg);
-    put(new THREE.BoxGeometry(1.2, 0.72, 0.06), graphite, 0, 0.39, -0.3, seg);
-    put(new THREE.BoxGeometry(1.24, 0.008, 0.008), trim, 0, 0.812, 0.35, seg);
-  });
-  const keyTex = keep(canvasTexture(1024, 320, (ctx) => {
-    ctx.fillStyle = '#0b0e12';
-    ctx.fillRect(0, 0, 1024, 320);
-    for (let r = 0; r < 5; r++) for (let c = 0; c < 22; c++) {
-      ctx.fillStyle = '#242a31';
-      ctx.fillRect(14 + c * 45.5, 14 + r * 60, 39, 52);
-    }
-  }));
-  const keyGlow = keep(canvasTexture(1024, 320, (ctx) => {
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, 1024, 320);
-    ctx.fillStyle = '#2aa7cf';
-    for (const [r, c] of [[0, 0], [0, 1], [0, 2], [0, 19], [0, 20], [0, 21], [4, 10], [4, 11]]) ctx.fillRect(14 + c * 45.5, 14 + r * 60, 39, 52);
-  }));
-  const deck = put(new THREE.BoxGeometry(0.46, 0.015, 0.15), keep(new THREE.MeshStandardMaterial({ map: keyTex, roughness: 0.55, emissive: '#ffffff', emissiveMap: keyGlow, emissiveIntensity: 0.7 })), 0, 0.82, CONSOLE_Z + 0.75);
-  deck.rotation.x = 0.12;
-  const buttons: THREE.Mesh[] = [];
-  ['#30d158', '#30d158', '#ffd60a', '#6fe3ff', '#30d158', '#ff453a'].forEach((c, i) => {
-    buttons.push(put(new THREE.CylinderGeometry(0.012, 0.012, 0.01, 16), keep(new THREE.MeshBasicMaterial({ color: c })), -0.55 + i * 0.05, 0.82, CONSOLE_Z + 0.85));
-  });
+  const desk = createConsoleDesk();
+  desk.group.position.set(0, 0, CONSOLE_Z + 1.25); // its origin is the seat
+  scene.add(desk.group);
+  disposables.push(desk);
+  const buttons = desk.leds;
   // Main screen, facing the seat square on, so its outline on the page is an exact rectangle for the HTML overlay.
   const SW = 1.7, SH = 0.956;
   const seatPos = new THREE.Vector3(0, 1.42, CONSOLE_Z + 1.25);
@@ -290,6 +267,9 @@ export function createBaseInterior(renderer: THREE.WebGLRenderer): BaseInterior 
   put(new RoundedBoxGeometry(SW + 0.08, SH + 0.08, 0.05, 4, 0.02), bezelMat, 0, 0, -0.03, main);
   const screen = put(new THREE.PlaneGeometry(SW, SH), keep(new THREE.MeshBasicMaterial({ map: keep(idleScreenTexture()) })), 0, 0, 0, main);
   put(new THREE.BoxGeometry(SW + 0.06, 0.006, 0.006), trim, 0, -SH / 2 - 0.045, 0, main);
+  put(new RoundedBoxGeometry(SW - 0.1, SH - 0.1, 0.07, 3, 0.02), bezelMat, 0, 0, -0.07, main); // back housing
+  put(new THREE.BoxGeometry(0.14, 0.22, 0.04), bezelMat, 0, -SH / 2 - 0.05, -0.1, main); // stand
+
   const corners = [new THREE.Vector3(-SW / 2, SH / 2, 0), new THREE.Vector3(SW / 2, SH / 2, 0), new THREE.Vector3(SW / 2, -SH / 2, 0), new THREE.Vector3(-SW / 2, -SH / 2, 0)];
   const sides: [number, string, [string, string][]][] = [
     [-1, 'BASE STATUS', [['Habitat pressure', '101.3 kPa'], ['O₂ / CO₂', '21.0 % / 0.4 kPa'], ['ISRU O₂ plant', '+58 L/h'], ['Power', '38.2 kW'], ['Water loop', 'nominal']]],
@@ -301,6 +281,8 @@ export function createBaseInterior(renderer: THREE.WebGLRenderer): BaseInterior 
     g.rotation.y = -sd * 0.7;
     scene.add(g);
     put(new RoundedBoxGeometry(0.76, 0.5, 0.04, 3, 0.02), bezelMat, 0, 0, -0.025, g);
+    put(new THREE.CylinderGeometry(0.018, 0.018, 0.3, 12), bezelMat, 0, -0.35, -0.04, g); // stand
+
     put(new THREE.PlaneGeometry(0.72, 0.45), keep(new THREE.MeshBasicMaterial({ map: keep(readoutTexture(title, rows, i * 3 + 1)) })), 0, 0, 0, g);
   });
 
@@ -322,27 +304,13 @@ export function createBaseInterior(renderer: THREE.WebGLRenderer): BaseInterior 
   hatchLight.position.set(0, 2.1, HATCH_Z - 0.4);
   scene.add(hatchLight);
 
-  // ---------- EVA suit on its stand, by the hatch ----------
-  const suit = new THREE.Group();
-  suit.position.set(1.75, 0, 2.75);
-  suit.rotation.y = -2.4; // facing into the room
-  scene.add(suit);
-  put(new THREE.CylinderGeometry(0.35, 0.4, 0.05, 32), graphite, 0, 0.025, 0, suit); // stand base
-  put(new THREE.CylinderGeometry(0.03, 0.03, 1.2, 10), steel, 0, 0.6, -0.2, suit);
-  put(new THREE.CapsuleGeometry(0.27, 0.42, 8, 24), fabric, 0, 1.3, 0, suit); // torso
-  put(new RoundedBoxGeometry(0.56, 0.68, 0.26, 4, 0.06), panelWhite, 0, 1.35, -0.3, suit); // backpack
-  put(new RoundedBoxGeometry(0.3, 0.14, 0.12, 3, 0.03), panelWhite, 0, 1.15, 0.29, suit); // chest controls
-  put(new THREE.TorusGeometry(0.2, 0.035, 12, 40), steel, 0, 1.68, 0, suit).rotation.x = Math.PI / 2; // neck ring
-  const helmetGlass = put(new THREE.SphereGeometry(0.21, 32, 24), keep(new THREE.MeshStandardMaterial({ color: '#cfe3f0', roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.3 })), 0, 1.88, 0.02, suit);
-  helmetGlass.renderOrder = 2;
-  put(new THREE.SphereGeometry(0.225, 32, 24, Math.PI * 0.15, Math.PI * 0.7, 0.15, Math.PI * 0.55), gold, 0, 1.88, 0.02, suit).rotation.y = -Math.PI / 2; // gold visor
-  put(new THREE.SphereGeometry(0.235, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.32), panelWhite, 0, 1.88, -0.01, suit); // visor shell top
-  for (const sx of [-1, 1]) {
-    put(new THREE.CapsuleGeometry(0.085, 0.5, 6, 16), fabric, sx * 0.36, 1.18, 0.03, suit).rotation.z = sx * 0.12; // arm
-    put(new THREE.SphereGeometry(0.075, 16, 12), darkFabric, sx * 0.41, 0.82, 0.05, suit); // glove
-    put(new THREE.CapsuleGeometry(0.11, 0.62, 6, 16), fabric, sx * 0.13, 0.62, 0, suit); // leg
-    put(new RoundedBoxGeometry(0.14, 0.1, 0.28, 3, 0.03), darkFabric, sx * 0.13, 0.06, 0.05, suit); // boot
-  }
+  // ---------- your EVA suit on its donning stand, beside the hatch, facing into the room ----------
+  const suitStand = createSuitStand();
+  disposables.push(suitStand);
+  const SUIT_A = 0.6, SUIT_R = 3.32; // round the wall from the hatch, towards the lockers
+  suitStand.group.position.set(Math.sin(SUIT_A) * SUIT_R, 0, Math.cos(SUIT_A) * SUIT_R);
+  suitStand.group.lookAt(0, 0, 0);
+  scene.add(suitStand.group);
 
   // ---------- lockers on the right wall ----------
   for (let i = 0; i < 4; i++) {
@@ -368,7 +336,7 @@ export function createBaseInterior(renderer: THREE.WebGLRenderer): BaseInterior 
   scene.add(new THREE.HemisphereLight('#dfe8f2', '#3a3530', 0.55));
   const ceilingLight = new THREE.PointLight('#f1f6ff', 14, 10, 2);
   ceilingLight.position.set(0, 2.45, 0);
-  const consoleLight = new THREE.PointLight('#6fe3ff', 0.8, 2.5, 2);
+  const consoleLight = new THREE.PointLight('#ffe9cf', 0.8, 2.5, 2);
   consoleLight.position.set(0, 1.5, CONSOLE_Z + 0.9);
   const windowLight = new THREE.PointLight('#ffcf9a', 3, 5, 2);
   windowLight.position.set(-3.1, 1.5, 0.4);
@@ -381,8 +349,8 @@ export function createBaseInterior(renderer: THREE.WebGLRenderer): BaseInterior 
   const tmp = new THREE.Vector3();
   const obstacles = [
     { x: 0, z: CONSOLE_Z + 0.35, r: 1.35 }, // console deck
-    { x: suit.position.x, z: suit.position.z, r: 0.6 },
     { x: ladder.position.x, z: ladder.position.z, r: 0.45 },
+    { x: suitStand.group.position.x, z: suitStand.group.position.z, r: 0.5 },
   ];
   main.updateMatrixWorld(true);
 
@@ -410,9 +378,9 @@ export function createBaseInterior(renderer: THREE.WebGLRenderer): BaseInterior 
     },
     aim(camera) {
       raycaster.setFromCamera(centre, camera);
-      const hit = raycaster.intersectObjects([screen, hatch], false)[0];
+      const hit = raycaster.intersectObjects([screen, hatch, ...suitStand.targets], false)[0];
       if (!hit) return null;
-      return hit.object === screen ? 'console' : 'hatch';
+      return hit.object === screen ? 'console' : 'hatch'; // the suit or the hatch: suit up and go out
     },
     screenRect(camera, w, h) {
       camera.updateMatrixWorld();
