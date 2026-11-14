@@ -10,6 +10,7 @@ permissions:
   contents: read
 jobs:
   desktop:
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -28,21 +29,52 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
-      - run: xvfb-run --auto-servernum npm run smoke
-        if: runner.os == 'Linux'
-      - run: npm run smoke
-        if: runner.os == 'Windows'
-      - run: npm run dist:${{ matrix.target }}
+      # Build/upload before GUI checks, so a smoke failure cannot hide installers.
+      - name: Build distribution
+        id: package
+        run: npm run dist:${{ matrix.target }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - run: xvfb-run --auto-servernum release/linux-unpacked/eva-sim --smoke
-        if: runner.os == 'Linux'
-      - run: '& "release/win-unpacked/EVA RAW.exe" --smoke'
-        if: runner.os == 'Windows'
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         with:
           name: raw-${{ matrix.target }}-x64
           path: |
             release/*.exe
             release/*.AppImage
           if-no-files-found: error
+      - name: Configure Linux Chromium sandbox helpers
+        id: sandbox
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          for helper in node_modules/electron/dist/chrome-sandbox release/linux-unpacked/chrome-sandbox; do
+            test -f "$helper"
+            sudo chown root:root "$helper"
+            sudo chmod 4755 "$helper"
+            test "$(stat -c '%u:%g:%a' "$helper")" = '0:0:4755'
+          done
+      - name: Source GUI smoke (Linux)
+        run: xvfb-run --auto-servernum npm run smoke
+        if: runner.os == 'Linux'
+        timeout-minutes: 2
+      - name: Source GUI smoke (Windows)
+        run: npm run smoke
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+      - name: Unpacked GUI smoke (Linux)
+        run: xvfb-run --auto-servernum release/linux-unpacked/eva-sim --smoke
+        if: ${{ !cancelled() && runner.os == 'Linux' && steps.package.outcome == 'success' && steps.sandbox.outcome == 'success' }}
+        timeout-minutes: 2
+      - name: Unpacked GUI smoke (Windows)
+        run: '& "release/win-unpacked/EVA RAW.exe" --smoke'
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.package.outcome == 'success' }}
+        timeout-minutes: 2
+      # No continue-on-error: GUI failures still fail the matrix job.
+      - name: Upload smoke screenshots (including failures)
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        with:
+          name: raw-smoke-${{ matrix.target }}
+          path: ${{ runner.temp }}/raw-*-smoke.png
+          if-no-files-found: warn
