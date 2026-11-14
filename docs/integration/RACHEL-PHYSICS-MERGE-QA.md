@@ -18,8 +18,16 @@ Do **not** claim that the Rachel preview applies the 750g suit stock, 293W NASA 
 - `src/main.tsx` — keep Rachel's enhanced React error boundary/hash routing; normal route opens Alex RAW, `#preview` opens Rachel scene.
 - `electron/main.cjs` — keep Alex's safer existing offline Electron entrypoint with RAW as default, NOT Rachel's auto-preview default. Existing `smoke:preview` drives the hash explicitly.
 - `package.json` — preserve Alex tests/build/smoke/physics scripts and add Rachel's `npm start` alias.
-- `scripts/dev-electron.mjs` — use Rachel's newer launch handling for desktop development (needs local smoke check).
+- `scripts/dev-electron.mjs` — retain Alex's strict port-in-use failure (required by smoke tests) and adopt Rachel's removal of `ELECTRON_RUN_AS_NODE` for native startup.
 - `tsconfig.json` — preserve Alex's stricter equivalent TS configuration; dependency lockfile is byte-identical.
+
+## CI graphics QA note
+On the first combined CI run (Linux), native smoke reached Rachel's new WebGL2
+preflight but the Xvfb GPU was blocklisted. In `electron/main.cjs` Chromium's
+software renderer fallback is now enabled only when the explicit `--smoke`
+argument is supplied. Production/native user sessions retain normal WebGL
+protection and startup error reporting. Test this fallback on both source and
+packaged Electron smoke; it is not a gameplay change.
 
 ## Scientific and runtime gates BEFORE promotion to personal main
 1. Verify the integration branch contains both parent commits and the diff against personal main touches *only* Rachel-owned sources, app boot/error boundary, compatibility adapter, dev scripts, and documentation/test additions.
