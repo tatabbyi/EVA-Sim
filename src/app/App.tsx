@@ -1,14 +1,4 @@
-// Written with AI assistance (Claude).
-// Owner: Alex. Placeholder shell: replace with the real Plan / Walk / Training modes.
-
+// Written with AI assistance (Codex). Owner: Alex.
 export function App() {
-  return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', color: 'var(--c-hud)', background: 'var(--c-space)', minHeight: '100vh', margin: 0, padding: 24 }}>
-      <h1>EVA Sim</h1>
-      <p>Skeleton. Modes: Plan, Walk, Training (not built yet).</p>
-      <p>
-        <a href="#preview" style={{ color: 'var(--c-waypoint)' }}>Open the look preview (helmet, HUD, sky)</a>
-      </p>
-    </main>
-  );
+  return <main><h1>EVA RAW Engine v0.1</h1><p>Offline desktop foundation. Jezero scene integration follows in Phase II.</p><a href="#preview">Visual preview</a></main>;
 }
