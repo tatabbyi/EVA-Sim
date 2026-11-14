@@ -3,10 +3,6 @@ const { app, BrowserWindow, protocol, session } = require('electron');
 const { resolve, sep } = require('node:path');
 const { readFile } = require('node:fs/promises');
 protocol.registerSchemesAsPrivileged([{ scheme: 'eva', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
-// GitHub Actions/Xvfb may lack hardware GL and blocklist software WebGL2.
-// Permit Chromium's software fallback ONLY during explicit automated smoke;
-// normal app builds and real user sessions are never granted this override.
-if (process.argv.includes('--smoke')) app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 const dev = !app.isPackaged && process.argv.includes('--dev');
 const origin = dev ? 'http://localhost:5173' : 'eva://app';
 app.whenReady().then(async () => {

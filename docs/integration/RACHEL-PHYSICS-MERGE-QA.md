@@ -22,12 +22,17 @@ Do **not** claim that the Rachel preview applies the 750g suit stock, 293W NASA 
 - `tsconfig.json` — preserve Alex's stricter equivalent TS configuration; dependency lockfile is byte-identical.
 
 ## CI graphics QA note
-On the first combined CI run (Linux), native smoke reached Rachel's new WebGL2
-preflight but the Xvfb GPU was blocklisted. In `electron/main.cjs` Chromium's
-software renderer fallback is now enabled only when the explicit `--smoke`
-argument is supplied. Production/native user sessions retain normal WebGL
-protection and startup error reporting. Test this fallback on both source and
-packaged Electron smoke; it is not a gameplay change.
+The inherited Linux Xvfb runner is not a reliable GPU source for this 3D game.
+Even the **pre-Rachel** RAW-engine commit `80af8c9` failed the Linux source and
+packaged Electron smoke because WebGL2 was GPU-blocklisted in CI.
+
+The staged merge passed Linux `npm ci`, `npm run build` and `npm test`, but
+the Linux GUI checks remain **open**. Attempting the Chromium unsafe software
+fallback only in `--smoke` mode yielded GPU stalls and an unresponsive game
+clock; it is not a scientifically valid graphics verification. We therefore
+**restored the original production Electron host byte-for-byte**, with no
+software GPU overrides. Use real Linux GPU hardware for the final native GUI
+test and separately check Windows packaged smoke.
 
 ## Scientific and runtime gates BEFORE promotion to personal main
 1. Verify the integration branch contains both parent commits and the diff against personal main touches *only* Rachel-owned sources, app boot/error boundary, compatibility adapter, dev scripts, and documentation/test additions.
