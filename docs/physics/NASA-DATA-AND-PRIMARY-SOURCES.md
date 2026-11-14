@@ -83,6 +83,21 @@
 - References NASA-STD-3001 Volume 1 Revision C (2023) for extraterrestrial EVA aerobic capacity and individual variations. Documents Apollo activity-specific oxygen requirements and deconditioning considerations.
 - **Not** a replacement for modeled per-task mass and oxygen rates; the demo uses one fixed astronaut profile.
 
+### N12 — Exact NASA Mars 2020 / USGS Jezero 1m DTM (USGS-PRIMARY, NASA MRO instrument data)
+**USGS Astrogeology Science Center:** *Mars 2020 Terrain Relative Navigation HiRISE DTM Mosaic*; **published 2020-07-24**. DOI **10.5066/P9REJ9JN**.
+- Original metadata/credit: https://astrogeology.usgs.gov/search/map/Mars/Mars2020/JEZ_hirise_soc_006_DTM_MOLAtopography_DeltaGeoid_1m_Eqc_latTs0_lon0_blend40
+- Actual source file inventory with GeoTIFF, XML and PDS-style labels: https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/mars2020_trn/HiRISE/index.html
+- Exact GeoTIFF: `JEZ_hirise_soc_006_DTM_MOLAtopography_DeltaGeoid_1m_Eqc_latTs0_lon0_blend40.tif`. Official metadata says **1m pixel**, raster **21488 x 21400**, float32, equirectangular Mars, planetocentric ~18.3068..18.6693 N and ~77.2229..77.584 E. Created from NASA MRO HiRISE imagery for Perseverance terrain-relative landing navigation, published by **USGS**.
+- NASA-AMMOS Landform data-input documentation independently points to the same USGS source: https://github-wiki-see.page/m/NASA-AMMOS/Landform/wiki/Links-to-Publicly-Available-Input-Data
+- **Do not claim** Victor's derived `height_2m.bin`/`height_4m.bin`/tiles came from this 1m source until original SHA-256, exact crop/resample/coordinate transforms, asset hash and control-point checks exist. This is real **NASA-mission-derived USGS data**, not the coarse MOLA PDS4 grid.
+
+### N13 — NASA Mars Trek viewer and imagery WMTS service (NASA-DATA PORTAL)
+- Viewer: https://trek.nasa.gov/mars/
+- NASA official WMTS API: https://trek.nasa.gov/tiles/apidoc/trekAPI.html?body=mars
+- NASA Mars Trek portal overview: https://trek.nasa.gov/mars/jpl/config/textAbout.html
+- NASA serves Mars imagery and topographic visual layers. Rachel's `research/06-maplibre-mars.md` names Jezero HiRISE 25cm controlled **orthomosaic imagery** (WMTS layer `JEZ_hirise_soc_006_orthoMosaic_25cm_Eqc_latTs0_lon0_first_dd`). **25cm image pixels do NOT mean a 25cm elevation DTM**. Independently verify the exact layer capability/URL before use.
+- Offline Electron **must package any needed NASA imagery and track source attribution in advance**, not fetch live tiles in the mission. WMTS projection differs from Web Mercator as Rachel documented.
+
 ## Non-NASA science used by Rachel — KEEP SEPARATE
 - Minetti, A. E. et al. (2002), **Energy Cost of Walking and Running at Extreme Uphill and Downhill Slopes**, *Journal of Applied Physiology*. DOI **10.1152/japplphysiol.01177.2001**. Original **Earth treadmill** walking and separate running curves. This is NOT NASA's equation for Mars EVA.
 - Tobler hiking-speed curve: as adapted and rescaled in Rachel's `research/02-walking-cost-model.md`; old scale factors, kg and calorie-to-O2 volume conversions are **composite engineering extrapolations**, not NASA-calibrated Mars suit laws.

@@ -31,6 +31,14 @@ Note: the archive branch is a special multi-parent history preservation commit; 
 | `docs/FOUR-TASK-ANIMATION-BRIEF.md` | Four separate task animations and shuttle cutscenes | Visual ownership Rachel; Alex physics owns state/resource impacts |
 | `docs/integration/RACHEL-VISUALS.md` | Verified HUD, renderer, events, legacy litre-based shader | No touching Rachel-owned files for this documentation pass |
 
+| `research/00-MORNING-BRIEF.md` | Historic first-day science and pitch assumptions | Earlier plan; do not treat as current decisions |
+| `research/01-data-check.md` | Jezero USGS Mars 2020 HiRISE **1m DTM** and crop/reprojection/source tests | Independently cross-checked original USGS source in NASA registry **N12**; exact Victor-derived binary lineage remains unverified |
+| `research/04-threejs-terrain.md` | Three.js shaders, contour rendering, WebGL compatibility | Visual engineering not human physiology |
+| `research/05-pymartini-to-threejs.md` | Tile geometry, RTIN mesh simplification, LOD | Geospatial visualization, not validated slope workload |
+| `research/06-maplibre-mars.md` | Mars Trek Jezero 25cm image layer, WMTS projection, MapLibre workaround | Image resolution is not DTM elevation resolution; NASA portal N13 |
+| `research/09-perseverance-images.md` | Perseverance image API and rover location attribution | Images, not a crew metabolic dataset |
+| `research/12-pitch-facts.md` | Historical Apollo walk-back and EVA talking points | Verify against primary source for current judge claim |
+
 ## Previous work this pass retains
 - `docs/physics/PHYSICS-DEMO-V01.md`, committed in `bc78b0f`: first approved engineering scenario (user five decisions) and API/test proposal.
 - `docs/physics/CODEX-PHYSICS-DEMO-V01.md`, committed in `bc78b0f`: implementation contract, file ownership.

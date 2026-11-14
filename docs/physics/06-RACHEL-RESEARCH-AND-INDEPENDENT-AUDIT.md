@@ -10,6 +10,12 @@
 5. `research/10-training-tasks.md`: seven real rover activities, action durations and historical references. Current game's **four independent tasks** supersede the suggested seven; original MOXIE-as-refill is not an approved mechanic.
 6. `src/terrain/material.ts`: visuals/shader for relief, contours, coloring, optional slope warning and optional litre-based O2 "Leash". Visual computations **do not automatically implement** scientifically valid human metabolic cost or gas policy.
 
+7. `research/01-data-check.md`: located a genuine **USGS/NASA Mars 2020 HiRISE Jezero 1m GeoTIFF** and planned GDAL reprojection. Original product now independently identified by **N12**. Actual processing of Victor's grid remains unverified.
+8. `research/04-threejs-terrain.md` and `research/05-pymartini-to-threejs.md`: terrain rendering/mesh reduction and GPU compatibility, NOT metabolic science.
+9. `research/06-maplibre-mars.md`: NASA Mars Trek Jezero imagery tiles, equirectangular/Web Mercator mismatch; **25cm imagery is not 25cm DTM heights**. NASA portal N13.
+10. `research/09-perseverance-images.md`: rover site/drive image attribution for contextual visuals, not human physiology.
+11. `research/12-pitch-facts.md` and `research/00-MORNING-BRIEF.md`: pitch/roadmap claims that must be reevaluated against the new fixed-site physics-first sprint.
+
 ## B. The original formula and its exact provenance
 ~~~text
 i = tan(theta)

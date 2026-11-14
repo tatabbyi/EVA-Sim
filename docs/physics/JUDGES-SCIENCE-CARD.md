@@ -4,11 +4,12 @@
 > A self-contained Mars surface EVA simulator, using a real-terrain-compatible coordinate system and a deterministic, unit-aware engineering model of suited motion, terrain-dependent metabolic workload and oxygen consumption. One preselected landing site for the demo; future landing sites will be automatically chosen from verifiable offline data coverage.
 
 ### Three science pillars and clear limits
-1. **Mars environment and terrain:** Reference gravity ~3.7 m/s² from NASA Glenn [N06], real orbital elevation datasets via NASA PDS MOLA [N07], potential high-detail HiRISE DTM and NASA Jezero hazard context [N09]. Our existing Jezero 4m asset is **not yet independently traced** to a specific PDS source file; exact dataset provenance is pending Victor's manifest.
+1. **Mars environment and terrain:** Reference gravity ~3.7 m/s² from NASA Glenn [N06], real orbital elevation datasets via NASA PDS MOLA [N07], published **USGS 1m NASA Mars 2020 HiRISE Jezero DTM** DOI 10.5066/P9REJ9JN [N12] and NASA Jezero hazard context [N09]. Our existing Jezero 4m asset is **not yet independently traced** to a specific PDS source file; exact dataset provenance is pending Victor's manifest.
 2. **Human performance:** NASA BVAD **2018**, Table 4-76: **293W metabolic workload ↔ 75g O2/h** at RQ 0.9 [N01], plus NASA suited biomechanical studies [N04] and new NASA Mars suit-mass preliminary research **July 2026** [N02]. We use a **simplified linear engineering extension**, not an empirical measurement of Martian humans.
 3. **Realistic constraints and decisions:** User-controlled suited speed, signed-uphill/downhill effort, oxygen rate/state, and failure upon depleted **modeled** O2. These mechanics illustrate why the pilot must balance science tasks and resources. O2 0g as mission failure is **our game rule**, not a claim of instant medical death.
 
 ### Science sources with persistent direct links
+- USGS/NASA Mars 2020 Jezero 1m DTM (2020), https://astrogeology.usgs.gov/search/map/Mars/Mars2020/JEZ_hirise_soc_006_DTM_MOLAtopography_DeltaGeoid_1m_Eqc_latTs0_lon0_blend40
 - NASA NASA/TP-2015-218570/REV1 (2018), https://ntrs.nasa.gov/citations/20180001338
 - NASA **Mars Spacesuit Mass Requirements** (2026), https://ntrs.nasa.gov/citations/20260003038
 - NASA JSC Traverse/Metabolic Workload (2025), https://ntrs.nasa.gov/citations/20250006519

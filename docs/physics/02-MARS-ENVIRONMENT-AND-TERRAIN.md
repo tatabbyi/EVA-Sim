@@ -31,6 +31,8 @@ NASA-verified sources: `NASA-DATA-AND-PRIMARY-SOURCES.md` N06 (Mars gravity), N0
 - Victor's independent branch has higher-resolution 2m data and 64 tile binaries, but source provenance, actual loader, mesh format, extent and normal winding must be verified at integration. Do not assume 10 km coverage or arbitrary landing coordinates.
 - **Data lineage**: Without a PDS bundle/product identifier + transform and hash for Victor's binaries, credit them as "processed Mars terrain supplied by teammate; source/product provenance pending", not "verified NASA 2m DTM". See source registry N07-N09.
 
+A **real possible provenance source** is the USGS *Mars 2020 Terrain Relative Navigation HiRISE DTM Mosaic* (2020), DOI **10.5066/P9REJ9JN**: 1m Jezero elevation GeoTIFF with source XML/LBL (NASA source list N12). The NASA Mars Trek portal serves visual Mars imagery (N13); **25cm imagery resolution is not a 25cm height grid**. Neither proves which source and GDAL transforms Victor used: demand exact original checksum, processing log, CRS/vertical datum and derived hash.
+
 ## 4. Slope is directional
 For horizontal motion from `(x,z)` along normalized heading `u=(ux,uz)` and probe distance `d`:
 ~~~text
