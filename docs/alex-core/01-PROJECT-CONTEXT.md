@@ -12,6 +12,16 @@ Operational interpretation:
 - Goal is to elicit all cross-cutting logic/science/physics constraints now; subsequently receive implementation blocks and ask block-specific questions.
 - Final artifacts: detailed, accepted technical specification + dependency-ordered Codex implementation prompts; Alex will review code.
 
+## Confirmed architecture answers, 2026-11-14
+- **Q01 / Q02:** Electron-only application for **Windows, Linux, macOS** (D-004). No independent browser app agreed.
+- **Q03:** **fully offline**, including required map/terrain/science capabilities at runtime (D-005). Exact bundled data strategy pending.
+- **Q04:** Victor develops and improves the **3D mesh / geometry**; Alex renders it (D-006). Exact exported geometry and metadata not yet agreed.
+- **Q05:** Alex owns oxygen formulas, route evaluation, pathfinding and Leash (D-007); previous Nanda allocation is historical and requires team coordination.
+- **Q06:** Technical interface contracts (CRS, tiles/grids/formats, origin, dimensions) **need agreement**, especially with Victor. Existing TEAM-PLAN is a working reference, NOT approved final schema.
+- **Q07:** Rachel owns visual components; Alex may change them **only after agreement** (D-008).
+- **Motivation stated by Alex:** Electron selected to escape ordinary browser constraints and use more resources for 3D. **Engineering reality:** Electron embeds Chromium; it does not remove GPU, WebGL, CPU, RAM, context or I/O limits. Performance is a testable goal, not guaranteed.
+- **Scope boundary:** No other scientific assumptions or formulas confirmed by these answers.
+
 ## Existing architecture (historical plan, not Electron agreement)
 - Vite + React + TS front end; Three.js r187 for 3D; MapLibre GL 6.18 for imagery/map.
 - Python precompute: GDAL for DTM/viewshed/geo data, SciPy graph Dijkstra for oxygen return-cost, NumPy, pymartini for 64 adaptive terrain tiles.
@@ -29,9 +39,9 @@ Operational interpretation:
 - `package.json` uses React/Vite/Three/MapLibre and GPL-3.0-or-later; no Electron dependency yet.
 - No build or runtime testing performed in this logging session.
 
-## Electron-specific design questions (NOT yet agreed)
-- Desktop-only versus both Electron and a publicly accessible browser demo for Space Apps.
-- Operating systems/platform packaging; entirely offline vs NASA live API vs cached.
+## Remaining Electron-specific design questions (NOT yet agreed)
+- Windows/Linux/macOS **distribution format** and machine compatibility: installer, portable build, development runner and testing matrix.
+- Fully offline asset storage: pre-bundled imagery/DTM/mesh and physics inputs; whether NASA sources can be used during **build-time** only; asset size and updating strategy.
 - Electron security: main/preload/renderer split; contextIsolation, nodeIntegration off, narrowly scoped IPC, no remote-code permission, secure CSP.
 - How to bundle/ship multi-GB data: external assets vs generated tiles, static app protocol, per-platform file paths; whether Python runs at build-time or runtime.
 - Maintain domain/simulation logic as pure TS libraries, with UI/Three.js/Electron adapters. Proposed architecture, not yet approved.
