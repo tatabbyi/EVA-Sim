@@ -24,16 +24,6 @@
   overflow: visible;
 }
 
-/* Thick curved glass: the view softens gradually towards the edges. */
-.hud-edge-blur {
-  position: absolute;
-  inset: 0;
-  backdrop-filter: blur(4px) saturate(120%);
-  -webkit-backdrop-filter: blur(4px) saturate(120%);
-  mask-image: radial-gradient(ellipse 45% 47% at 50% 46%, transparent 60%, rgba(0, 0, 0, 0.6) 85%, #000 100%);
-  -webkit-mask-image: radial-gradient(ellipse 45% 47% at 50% 46%, transparent 60%, rgba(0, 0, 0, 0.6) 85%, #000 100%);
-}
-
 /* Breath fogging the bottom of the visor, coming and going */
 .hud-breath {
   position: absolute;
@@ -41,14 +31,14 @@
   right: 25%;
   bottom: 4%;
   height: 26%;
-  background: radial-gradient(ellipse 50% 60% at 50% 100%, rgba(225, 235, 245, 0.16), rgba(225, 235, 245, 0) 70%);
+  background: radial-gradient(ellipse 50% 60% at 50% 100%, rgba(225, 235, 245, 0.09), rgba(225, 235, 245, 0) 70%);
   filter: blur(8px);
   animation: hud-breathe 4.2s ease-in-out infinite;
 }
 @keyframes hud-breathe {
-  0%, 100% { opacity: 0.15; }
-  40% { opacity: 1; }
-  60% { opacity: 0.8; }
+  0%, 100% { opacity: 0.1; }
+  40% { opacity: 0.6; }
+  60% { opacity: 0.45; }
 }
 
 /* ---------- Light projected on the glass ---------- */

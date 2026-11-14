@@ -14,8 +14,8 @@ export function createAdaptiveResolution(
   renderer: THREE.WebGLRenderer,
   opts: { min?: number; max?: number; slowMs?: number; fastMs?: number } = {},
 ): AdaptiveResolution {
-  const max = opts.max ?? Math.min(window.devicePixelRatio || 1, 1.5);
-  const min = Math.min(max, opts.min ?? 0.6);
+  const max = opts.max ?? Math.min(window.devicePixelRatio || 1, 2);
+  const min = Math.min(max, opts.min ?? 1); // never below native: sharpness first
   const slowMs = opts.slowMs ?? 22; // under ~45 fps: drop resolution
   const fastMs = opts.fastMs ?? 13; // over ~75 fps: raise it again
   let pr = max;
