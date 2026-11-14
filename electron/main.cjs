@@ -13,6 +13,7 @@ app.whenReady().then(async () => {
     try { path = resolve(root, '.' + decodeURIComponent(url.pathname)); } catch { return new Response('Invalid path', { status: 400 }); }
     if (url.host !== 'app' || !path.startsWith(root + sep)) return new Response('Forbidden', { status: 403 });
     try {
+      if (process.argv.includes('--smoke-missing') && path.endsWith('height_4m.bin')) return new Response('Missing test grid', { status: 404 });
       const body = await readFile(path);
       const ext = path.split('.').pop();
       const mime = { html: 'text/html', js: 'text/javascript', css: 'text/css', json: 'application/json', bin: 'application/octet-stream' }[ext] || 'application/octet-stream';
@@ -35,16 +36,7 @@ app.whenReady().then(async () => {
     win.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(origin + '/')) event.preventDefault(); });
     win.webContents.on('will-redirect', event => event.preventDefault());
     win.loadURL(origin + '/index.html');
-    if (process.argv.includes('--smoke')) {
-      const timer = setTimeout(() => { console.error('SMOKE timeout'); app.exit(1); }, 30000);
-      win.webContents.once('did-finish-load', async () => {
-        try {
-          const result = await win.webContents.executeJavaScript(`Promise.all(['data/meta.json', 'grids/height_4m.bin'].map(async path => { const response = await fetch('/' + path); if (!response.ok) throw new Error(path + ': ' + response.status); return (await response.arrayBuffer()).byteLength; }))`);
-          console.log('SMOKE offline assets', JSON.stringify(result));
-          clearTimeout(timer); app.exit(0);
-        } catch (error) { console.error(error); clearTimeout(timer); app.exit(1); }
-      });
-    }
+    if (process.argv.includes('--smoke')) require('./smoke.cjs')(win, app);
   };
   createWindow();
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
