@@ -4,6 +4,7 @@ const { tmpdir } = require('node:os');
 const { join } = require('node:path');
 const { previewReady } = require('./smoke-readiness.cjs');
 module.exports = function runSmoke(win, app) {
+      const evidenceDir = process.env.RUNNER_TEMP || tmpdir();
       const timer = setTimeout(() => { console.error('SMOKE timeout'); app.exit(1); }, 35000);
       win.webContents.once('did-finish-load', async () => {
         try {
@@ -38,27 +39,76 @@ module.exports = function runSmoke(win, app) {
             throw new Error('Scene never became ready');
           })()`);
           if (!missing && !preview) {
-            win.focus();
-            await win.webContents.executeJavaScript(`(() => { [...document.querySelectorAll('button')].find(b => b.textContent === 'Resume')?.click(); document.querySelector('.raw-scene canvas').click(); })()`, true);
-            await new Promise(resolve => setTimeout(resolve, 200));
-            if (!await win.webContents.executeJavaScript('!!document.pointerLockElement')) throw new Error('Pointer lock failed');
-            const position = () => win.webContents.executeJavaScript(`document.querySelector('.raw-controls').textContent.match(/X [-0-9.]+ m · Z [-0-9.]+ m/)[0]`);
-            const before = await position();
-            win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'W' });
-            win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Shift' });
-            await new Promise(resolve => setTimeout(resolve, 400));
-            win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'W' });
-            win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Shift' });
-            await new Promise(resolve => setTimeout(resolve, 150));
-            const after = await position();
-            if (before === after) throw new Error('WASD movement failed');
+            const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+            const readState = () => win.webContents.executeJavaScript(`(() => {
+              const text = document.querySelector('.raw-controls')?.textContent ?? '';
+              const position = text.match(/X ([-0-9.]+) m · Z ([-0-9.]+) m/);
+              const clock = text.match(/Clock ([0-9.]+) s/);
+              return { x: position ? Number(position[1]) : null, z: position ? Number(position[2]) : null,
+                time: clock ? Number(clock[1]) : null, paused: text.includes('PAUSED'),
+                running: / s · run/.test(text), focus: document.hasFocus(),
+                locked: document.pointerLockElement === document.querySelector('.raw-scene canvas'),
+                keys: window.__rawSmokeKeys ?? [] };
+            })()`);
+            // Observe actual Chromium-delivered events; never dispatch renderer KeyboardEvents
+            // or engine commands as a substitute for working native input.
+            await win.webContents.executeJavaScript(`(() => {
+              window.__rawSmokeKeys = [];
+              window.addEventListener('keydown', event => window.__rawSmokeKeys.push({
+                code: event.code, key: event.key, shift: event.shiftKey, trusted: event.isTrusted
+              }));
+            })()`);
+            win.show(); win.focus(); win.webContents.focus();
+            let focused = false;
+            for (let i=0; i<50; i++) {
+              if (win.isFocused() && (await readState()).focus) { focused=true; break; }
+              await wait(100);
+            }
+            if (!focused) throw new Error('Native window/document did not acquire focus: ' + JSON.stringify(await readState()));
+            await win.webContents.executeJavaScript(`(() => {
+              [...document.querySelectorAll('button')].find(b => b.textContent === 'Resume')?.click();
+              document.activeElement?.blur();
+              document.querySelector('.raw-scene canvas').click();
+            })()`, true);
+            let before;
+            for (let i=0; i<50; i++) {
+              before=await readState();
+              if (before.focus && before.locked && !before.paused && before.x !== null && before.z !== null && before.time !== null) break;
+              await wait(100);
+            }
+            if (!before?.focus || !before.locked || before.paused || before.x === null || before.z === null || before.time === null) throw new Error('Input not ready: ' + JSON.stringify(before));
+            let after, moved = false;
+            try {
+              win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Shift', modifiers: ['shift', 'left'] });
+              win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'W', modifiers: ['shift'] });
+              // Poll real HUD snapshots while keys are held; software-rendered Windows
+              // runners may need longer than the former fixed 400 ms + 150 ms delay.
+              for (let i=0; i<50; i++) {
+                await wait(100); after=await readState();
+                if (!after.focus || !after.locked || after.paused) throw new Error('Focus/lock lost during movement: ' + JSON.stringify(after));
+                const distance=Math.hypot(after.x-before.x,after.z-before.z);
+                const receivedW=after.keys.some(k => k.code === 'KeyW' && k.shift && k.trusted);
+                const receivedShift=after.keys.some(k => /^Shift(Left|Right)$/.test(k.code) && k.trusted);
+                if (after.x !== null && after.z !== null && after.time !== null && distance >= 1 && after.time > before.time && after.running && receivedW && receivedShift) { moved=true; break; }
+              }
+            } finally {
+              win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'W', modifiers: ['shift'] });
+              win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Shift' });
+            }
+            console.log('SMOKE native input diagnostics', JSON.stringify({ platform:process.platform, before, after }));
+            if (!moved) throw new Error('WASD/Shift failed: require trusted key delivery, running clock/mode and >=1 m displacement');
             await win.webContents.executeJavaScript('document.exitPointerLock()');
-            console.log('SMOKE pointer lock + WASD/Shift', before, '->', after);
+            console.log('SMOKE pointer lock + WASD/Shift', before.x, before.z, '->', after.x, after.z);
           }
-          const screenshot = join(tmpdir(), process.argv.includes('--smoke-preview') ? 'raw-preview-smoke.png' : process.argv.includes('--smoke-missing') ? 'raw-missing-smoke.png' : 'raw-engine-smoke.png');
+          const screenshot = join(evidenceDir, process.argv.includes('--smoke-preview') ? 'raw-preview-smoke.png' : process.argv.includes('--smoke-missing') ? 'raw-missing-smoke.png' : 'raw-engine-smoke.png');
           await writeFile(screenshot, (await win.webContents.capturePage()).toPNG());
           console.log('SMOKE', result, screenshot);
           clearTimeout(timer); app.exit(0);
-        } catch (error) { console.error(error); clearTimeout(timer); app.exit(1); }
+        } catch (error) {
+          console.error(error);
+          try { await writeFile(join(evidenceDir, 'raw-failure-smoke.png'), (await win.webContents.capturePage()).toPNG()); }
+          catch (captureError) { console.error('Failure screenshot unavailable:', captureError); }
+          clearTimeout(timer); app.exit(1);
+        }
       });
 };

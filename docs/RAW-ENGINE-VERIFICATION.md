@@ -172,3 +172,112 @@ Unknown HUD resources are now explicitly NOT SIMULATED in the app overlay, and
 nearest interaction filters out finished/failed tasks; core task-count/type policy
 remains deliberately flexible. Partial terrain meshes remain deferred. The source
 fix does not satisfy the outstanding native Windows or human offline release gates.
+
+## Fast Track CI follow-up — integration blocked by visible ref (2026-11-14)
+
+This round started at `2f96c693e1788e8c7bc97c04e39d3cc0883ed8ad` in the only
+visible worktree, `/home/moka/Projects/Sharkies`, on `feat/raw-engine-v01`.
+There was no pending merge or conflict. After the user's manual-fetch notice,
+direct checks of `HEAD` and `refs/remotes/upstream/main` in that exact directory
+still returned:
+
+```text
+HEAD:          2f96c693e1788e8c7bc97c04e39d3cc0883ed8ad
+upstream/main: ac2e18819e3462a89798fb88a75e22cfdd28733e
+upstream URL:  git@github.com:tatabbyi/Sharkies.git
+```
+
+`git log HEAD..upstream/main` was empty. A read outside the filesystem sandbox
+confirmed the same SHA/worktree. Per the user's explicit instruction, integration
+was stopped: **no merge was started/completed** and this is **not evidence that
+latest team main is integrated**. Existing backup branch
+`backup/raw-before-rachel-merge-20261114` already points at `2f96c69`; no new backup
+or merge commit was created against the stale visible ref. No fetch, reset,
+rebase, push, PR, remote-main update or Actions rerun was performed.
+
+### CI findings and focused changes
+
+Read the actual Linux/Windows jobs from
+[run 43610325010](https://github.com/mokachkasss/Sharkies/actions/runs/43610325010):
+Linux job `132493784693` aborted because its Chromium helper was not root-owned
+mode 4755. Windows job `132493784951` passed build and all 17 tests, then failed
+`WASD movement failed`; packaging/artifact upload was skipped on both OSes.
+The old Windows log has no key/focus/timer diagnostics, so its precise input
+failure cause cannot be established from that log alone.
+
+Changes in `.github/workflows/raw-desktop.yml`:
+
+- Build and upload distributions after unit tests and **before GUI smoke**.
+  Upload uses explicit package-success/noncancelled conditions. Native source
+  and unpacked GUI failures still fail the job; no continue-on-error is used.
+- Configure **both** source and unpacked Linux `chrome-sandbox` binaries using
+  `sudo chown root:root`, `sudo chmod 4755`, then assert ownership/mode.
+  Application `sandbox:true`, isolation, Node restrictions and host request policy
+  remain intact; there is no `--no-sandbox` or system-wide security disable.
+  This is CI runner setup, not a claimed local execution of that sudo step or
+  verification of installed AppImage sandbox behavior on every Linux host.
+- Retain both native runners and limited feature-branch push trigger. Unpacked
+  smokes can run after source-smoke failure, preserving the failure result.
+  Upload success/failure screenshots from runner temp and bound GUI/job duration.
+
+Changes in `electron/smoke.cjs`:
+
+- Show/focus native window **and** web contents, wait for native/document focus,
+  then acquire actual canvas pointer lock and verify the app is unpaused.
+- Deliver Shift first with explicit left/shift modifiers, then native W with Shift.
+  Observe Chromium-delivered key/code/modifier/isTrusted values; do not inject
+  DOM KeyboardEvents or call engine movement commands to make the smoke pass.
+  The supported native injection API is documented in
+  [Electron webContents](https://www.electronjs.org/docs/latest/api/web-contents#contentssendinputeventinputevent).
+- Replace a fixed 400 ms hold/150 ms HUD wait with a bounded 5 s poll while keys
+  are held. Require both trusted keys, live focus/lock, unpaused state, advancing
+  simulation clock, run mode and **at least 1 m numeric XZ displacement**.
+  Release keys in finally. Emit platform/before/after/key diagnostics and capture
+  failure screenshots. Screenshot directory is RUNNER_TEMP in CI, tmpdir locally.
+- Windows focus/delivery/timing changes require the next native CI run to confirm;
+  this round does not claim a proven Windows runtime fix.
+
+### Actual integration APIs
+
+No files under `src/` changed in this round. Existing signatures remain:
+
+```ts
+createEngine(region: Region, mission: Mission,
+  canOccupy?: (p: XZ) => boolean, speeds?: DemoMovement): Engine;
+mountScene(host: HTMLDivElement, engine: Engine, heights: HeightProvider,
+  reportRoute?: (reason: string | null) => void): {
+    input: ReturnType<typeof createDemoInput>; dispose(): void;
+  };
+applyRouteCandidate(engine: Engine, terrain: HeightProvider, route: Route): {
+  ok: boolean; reason?: string;
+};
+```
+
+`HeightProvider`/`RouteContextV1` retain their region/frame/terrain-revision and
+coverage/provenance contracts described above. Rachel's preview/visual APIs,
+Victor's terrain and Nanda's code are untouched. New upstream signatures cannot
+be reconciled until the intended fresh ref/content is visible.
+
+### Minimal verification and ownership
+
+- `npm run typecheck`: PASS.
+- `npm run build`: PASS; existing Vite 929.19 kB chunk warning remains.
+- `npm test`: PASS, all 17 existing cases.
+- **One** `npm run smoke`: PASS on Linux. Native trusted ShiftLeft/KeyW received;
+  displayed XZ moved `(12,12)` → `(12.8,10.9)` while clock advanced `0.1` → `0.3 s`,
+  run mode/focus/pointer lock remained true. Screenshot `/tmp/raw-engine-smoke.png`.
+- Workflow YAML/ordering/conditions and JS syntax checked; `git diff --check` PASS.
+  `git diff 2f96c69 -- src` and the protected-folder diff are empty. No protected
+  file conflicts or edits. CI sudo configuration itself awaits the hosted runner.
+- No local preview, missing-grid or packaging smoke loops. No Linux packaging or
+  Windows cross-build in this round. Native two-OS validation awaits Alex's push.
+
+Exact changed files for this round: `.github/workflows/raw-desktop.yml`,
+`electron/smoke.cjs`, `docs/RAW-ENGINE-VERIFICATION.md`. Local commits separate the
+workflow/sandbox/artifact fix from the native input smoke and this report.
+No artifacts or evidence binaries are committed.
+
+Remaining blockers: intended fresh upstream content is not visible here;
+native Windows GUI and revised Linux CI sandbox/artifact behavior must pass CI.
+Manual install/disconnected offline verification remains separate. No new physics,
+ML, terrain catalogs or animations were implemented.
