@@ -79,3 +79,11 @@ O2(t) = E(t)/4.8                            // litres per metre
 - No data loaded/validated in existing repo, therefore no proven numerical/visual accuracy yet.
 - Electron file://, secure asset protocol, GPU/CORS and headset support need design.
 - Do not silently alter formulas; record agreed changes and cite evidence if any external verification is performed.
+
+## Ownership/architecture update, 2026-11-14
+- **User confirmed:** Alex now owns scientific oxygen formulas, routing/pathfinding and Leash implementation (Q05, D-007). Scientific equations and assumptions above have **not** themselves been validated or accepted by this ownership decision.
+- **Victor confirmed responsibility:** developing/improving 3D mesh / geometry as an input to Alex's renderer (Q04, D-006). The user has **not** yet confirmed precise mesh type, density, LOD, normals, texture UVs, coordinate frame or file format.
+- **Unresolved:** agreement with Victor on CRS/axis order, tile/mesh file specs, scaling, origin and matching grids is required (Q06). Do not interpret the earlier TEAM-PLAN data contract as final.
+- **Runtime requirement:** fully offline Electron only on Windows/Linux/macOS (D-004, D-005). NASA/USGS data may need offline redistribution and attribution; how to prepare, size and package assets remains undecided.
+- **Visual ownership:** Rachel's files may be modified only after coordination (D-008).
+- **Performance caution:** Electron does not inherently remove Chromium/WebGL memory and rendering limits. GPU profiling, LOD, streaming, and asset budgets are implementation concerns for later approved blocks.
