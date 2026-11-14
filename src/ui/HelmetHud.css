@@ -3,172 +3,152 @@
 .hud {
   position: absolute;
   inset: 0;
+  overflow: hidden;
   pointer-events: none;
   color: var(--c-hud);
-  font-family: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace;
-  text-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
   user-select: none;
 }
 
-/* Visor frame */
-.hud-frame {
+/* The helmet: larger than the screen so it can sway with the head without showing gaps.
+   headSway.ts sets its transform each frame; will-change keeps it on its own GPU layer, so swaying never repaints it. */
+.hud-helmet {
+  position: absolute;
+  inset: -6%;
+  will-change: transform;
+}
+.hud-svg {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-}
-.hud-frame-shell {
-  fill: var(--c-helmet);
-  opacity: 0.94;
-}
-.hud-frame-rim {
-  fill: none;
-  stroke: var(--c-hud-dim);
-  stroke-width: 2px;
-  opacity: 0.7;
-}
-.hud-frame-glint {
-  fill: none;
-  stroke: #ffffff;
-  stroke-width: 1px;
-  opacity: 0.12;
+  overflow: visible;
 }
 
-/* Task counter, top-left inside the visor */
-.hud-tasks {
+/* Thick curved glass: the view softens gradually towards the edges. */
+.hud-edge-blur {
   position: absolute;
-  left: 14%;
-  top: 27%;
-  display: flex;
-  align-items: baseline;
-  gap: 0.5em;
-  font-size: clamp(16px, 2.2vw, 30px);
-  letter-spacing: 0.08em;
+  inset: 0;
+  backdrop-filter: blur(4px) saturate(120%);
+  -webkit-backdrop-filter: blur(4px) saturate(120%);
+  mask-image: radial-gradient(ellipse 45% 47% at 50% 46%, transparent 60%, rgba(0, 0, 0, 0.6) 85%, #000 100%);
+  -webkit-mask-image: radial-gradient(ellipse 45% 47% at 50% 46%, transparent 60%, rgba(0, 0, 0, 0.6) 85%, #000 100%);
 }
-.hud-tasks-count {
+
+/* Breath fogging the bottom of the visor, coming and going */
+.hud-breath {
+  position: absolute;
+  left: 25%;
+  right: 25%;
+  bottom: 4%;
+  height: 26%;
+  background: radial-gradient(ellipse 50% 60% at 50% 100%, rgba(225, 235, 245, 0.16), rgba(225, 235, 245, 0) 70%);
+  filter: blur(8px);
+  animation: hud-breathe 4.2s ease-in-out infinite;
+}
+@keyframes hud-breathe {
+  0%, 100% { opacity: 0.15; }
+  40% { opacity: 1; }
+  60% { opacity: 0.8; }
+}
+
+/* ---------- Light projected on the glass ---------- */
+.hud-on-glass text {
+  fill: var(--c-hud);
+  filter: drop-shadow(0 0 3px rgba(120, 180, 255, 0.55)) drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
+}
+
+/* Objectives */
+.hud-obj-label {
+  fill: var(--c-hud-dim);
+  font-size: 0.72em;
+  letter-spacing: 0.22em;
+}
+.hud-obj-count {
+  font-size: 1.5em;
   font-weight: 700;
 }
-.hud-tasks-label {
-  color: var(--c-hud-dim);
-  font-size: 0.7em;
+.hud-obj-time {
+  font-size: 1.25em;
+  font-weight: 700;
+}
+.hud-obj-time--warning { fill: var(--c-warning) !important; }
+.hud-obj-time--danger { fill: var(--c-danger) !important; }
+.hud-obj-current {
+  fill: var(--c-objective) !important;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
-/* Alert, top-centre */
+/* Alert */
 .hud-alert {
-  position: absolute;
-  left: 50%;
-  top: 15%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5em;
-  padding: 0.6em 1.1em;
-  border: 2px solid currentColor;
-  border-radius: 6px;
-  background: var(--c-hud-panel);
-  font-size: clamp(13px, 1.5vw, 20px);
-}
-.hud-alert--danger {
-  color: var(--c-danger);
-  animation: hud-pulse 1.1s ease-in-out infinite;
-}
-.hud-alert--warning {
-  color: var(--c-warning);
-}
-.hud-alert--info {
-  color: var(--c-hud);
-}
-.hud-alert-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5em;
-  font-size: 1.5em;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-}
-.hud-alert-icon {
-  width: 1.2em;
-  height: 1.2em;
-}
-.hud-check {
   pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 0.8em;
-  padding: 0.2em 0.3em;
-  border: 0;
-  background: none;
-  color: var(--c-hud);
-  font: inherit;
   cursor: pointer;
 }
-.hud-check:disabled {
-  cursor: default;
-}
-.hud-check-box {
-  display: inline-grid;
-  place-items: center;
-  width: 1.3em;
-  height: 1.3em;
-  border: 2px solid currentColor;
-  border-radius: 3px;
+.hud-alert-title {
+  font-size: 1.5em;
   font-weight: 800;
+  letter-spacing: 0.2em;
 }
-.hud-check:focus-visible {
-  outline: 2px solid var(--c-hud);
-  outline-offset: 3px;
+.hud-alert--danger .hud-alert-title {
+  fill: var(--c-danger) !important;
+  animation: hud-glow 1.1s ease-in-out infinite;
+}
+.hud-alert--warning .hud-alert-title {
+  fill: var(--c-warning) !important;
+}
+.hud-alert-message {
+  font-size: 0.95em;
+}
+.hud-alert-key {
+  font-weight: 800;
+  fill: var(--c-hud);
+}
+@keyframes hud-glow {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(255, 59, 48, 0.35)); }
+  50% { filter: drop-shadow(0 0 9px rgba(255, 59, 48, 0.95)); }
 }
 
-@keyframes hud-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.0); }
-  50% { box-shadow: 0 0 18px 2px rgba(255, 77, 79, 0.55); }
+/* O2 and temperature bars */
+.hud-bar-edge {
+  fill: none;
+  stroke: color-mix(in srgb, var(--bar-colour) 50%, transparent);
+  stroke-width: 1.15em;
+  stroke-linecap: round;
 }
-@media (prefers-reduced-motion: reduce) {
-  .hud-alert--danger { animation: none; }
-}
-
-/* Readout strip, bottom of the visor (proposal) */
-.hud-readouts {
-  position: absolute;
-  left: 50%;
-  bottom: 9%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: clamp(10px, 2vw, 32px);
-  padding: 0.5em 1em;
-  border-top: 1px solid var(--c-hud-dim);
-  font-size: clamp(11px, 1.1vw, 16px);
-  white-space: nowrap;
-}
-.hud-readout {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.15em;
-}
-.hud-readout--o2 {
-  min-width: 9em;
-}
-.hud-readout-label {
-  color: var(--c-hud-dim);
-  font-size: 0.75em;
-  letter-spacing: 0.12em;
-}
-.hud-readout-value {
-  font-weight: 700;
-}
-.hud-bar {
-  width: 100%;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.15);
-  overflow: hidden;
+.hud-bar-track {
+  fill: none;
+  stroke: rgba(4, 8, 14, 0.75);
+  stroke-width: 1em;
+  stroke-linecap: round;
 }
 .hud-bar-fill {
-  display: block;
-  height: 100%;
-  background: var(--c-ok);
+  fill: none;
+  stroke: var(--bar-colour);
+  stroke-width: 0.7em;
+  stroke-linecap: round;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 6px var(--bar-colour));
+  transition: stroke-dasharray 0.3s ease;
 }
-.hud-comms--marginal .hud-readout-value { color: var(--c-warning); }
-.hud-comms--lost .hud-readout-value { color: var(--c-danger); }
+.hud-bar-value {
+  font-weight: 600;
+  font-size: 0.9em;
+}
+.hud-bar-label {
+  fill: var(--bar-colour) !important;
+  font-size: 0.8em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.hud-bar--warning .hud-bar-value { fill: var(--c-warning); }
+.hud-bar--danger .hud-bar-value { fill: var(--c-danger); }
+.hud-bar--danger .hud-bar-fill { animation: hud-blink 0.8s steps(2, start) infinite; }
+@keyframes hud-blink {
+  50% { opacity: 0.3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-alert--danger .hud-alert-title,
+  .hud-bar--danger .hud-bar-fill,
+  .hud-breath { animation: none; }
+}

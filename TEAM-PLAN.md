@@ -36,7 +36,7 @@ Research notes are in `research/` (files 00 to 13). This plan says who does what
 
 **The product in one line:** plan a Mars spacewalk at Jezero on real NASA terrain, see how far you can go and still walk home, and the odds you make it.
 
-**MVP (must exist at 05:00):** Plan mode on real terrain, a drawn route with O₂ use, the Leash line, Survival Odds, and the Houston light delay. Everything else is extra. See section 9.
+**MVP (must exist at 05:00). Decided Sat 14 Nov: free roam is the core.** Walk the real Jezero terrain in first person, follow the outlined path, stop to take an animated rock sample, with the helmet HUD (objectives and time, O₂, temperature, hazard alerts). Plus the Leash line, Survival Odds and the Houston light delay. Everything else is extra. See section 9.
 
 ---
 
@@ -87,7 +87,7 @@ From the "PLAN" whiteboard, Sat 14 Nov. This is the agreed understanding so far;
 | Alex | Game rules: objectives list and timer ("too slow wipes objectives"), hazard events with an [E] accept prompt, O₂ drain while running, the two endings. The Setup screen is the first screen. |
 | Victor | No change to the data. Objective spots and hazards need positions on the terrain (`heightAt`). |
 | Aadila | Demo shows the dying scene and the happy case. "Human in the loop" is a strong pitch line. |
-| Everyone | **Decision needed:** does the free-roam EVA replace Plan mode as the core of the demo and the MVP? |
+| Everyone | **Decided:** free roam is the core. There is an outlined path you can follow, and you can stop at places to take a rock sample, which is animated (R5). |
 
 ### Open questions for Rachel
 
@@ -251,7 +251,7 @@ eva-sim/
 | R2 | **Terrain material v1** on the 4 m grid: contour lines (minor 5 m, major 25 m), slope warning from 20° to 25°, crease lines, silhouette rim, simple sun lighting | Sat 13:00 (check-in 1) | Terrain is readable in the browser |
 | R3 | **Leash and comms in the shader.** Sample `o2_to_home` with `uO2Left` and draw a glowing line where the value equals O₂ left minus reserve (same `fract`/`fwidth` trick as contours). Tint ground beyond it. Hatch or tint comms dead zones | Sat 18:00 | The line moves when `uO2Left` changes |
 | R4 | **Helmet HUD (section 1a)**: follows the head; parts move into view depending on head direction; objectives block top-left ("3/14", current objective); hazard alert centre only when needed ("⚠ CYCLONE / Switch waypoint to home? [E]"); chin hologram. Desktop HTML/CSS for Alex, VR panel spec for Nanda (CanvasTexture) | Sat 20:00 | Alex and Nanda can build it without asking |
-| R5 | **World visuals**: route arrows on the ground, highlighted objective spots, the cyclone (dust devil) moving across the terrain, obstacles in the path highlighted | Sat 23:00 | Walking the terrain shows where to go and what's dangerous |
+| R5 | **World visuals**: the outlined path with flowing arrows (`src/terrain/routePath.ts`, done); rock-sample stops with the animated coring sequence (`src/terrain/sampleSite.ts`, done: corer lowers, drills with dust, lifts the core, stows; press F within 3 m); the cyclone (dust devil) moving across the terrain; obstacles in the path highlighted | Sat 23:00 | Walking the terrain shows where to go and what's dangerous |
 | R6 | **Setup screen look**: missions list, levels panel, topographic map with route and destination (replaces Plan mode map styling) | Sun 01:00 | Setup screen matches the 3D look |
 | R7 | **Helmet view finish and endings**: visor frame, vignette, line widths at eye height on 1 m tiles; look of the dying scene and the happy case | Sun 02:00 | Walk mode and both endings look finished |
 | R8 | **Visuals for Aadila**: best camera angles, 6 to 8 screenshots, title card | first set Sun 01:00, final Sun 05:30 | Aadila has what the demo needs |

@@ -6,6 +6,9 @@ export function App() {
     <main style={{ fontFamily: 'system-ui, sans-serif', color: 'var(--c-hud)', background: 'var(--c-space)', minHeight: '100vh', margin: 0, padding: 24 }}>
       <h1>EVA Sim</h1>
       <p>Skeleton. Modes: Plan, Walk, Training (not built yet).</p>
+      <p>
+        <a href="#preview" style={{ color: 'var(--c-waypoint)' }}>Open the look preview (helmet, HUD, sky)</a>
+      </p>
     </main>
   );
 }
