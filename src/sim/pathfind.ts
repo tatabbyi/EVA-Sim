@@ -14,8 +14,8 @@ export type XZ = { x: number; z: number };
 export interface Lattice { cols: number; rows: number; cell: number; minX: number; minZ: number; height: Float32Array; blocked: Uint8Array }
 /** cost: O2 litres from each node to the goal (Infinity = unreachable); next: node towards it. goalNode -1 = no ground. */
 export interface CostField { goal: XZ; goalNode: number; cost: Float32Array; next: Int32Array }
-/** points: start → objectives in `order`; back: last objective → home; litres: planned O2 for both. */
-export interface TourPlan { order: number[]; points: XZ[]; back: XZ[]; litres: number }
+/** legs[k]: walk to objective order[k]; points: all legs joined; back: last objective → home; litres: planned O2 for all. */
+export interface TourPlan { order: number[]; legs: XZ[][]; points: XZ[]; back: XZ[]; litres: number }
 
 export const DENSIFY_M = 4; // max spacing of output points (keeps the Catmull-Rom arrows on the line)
 export const SMOOTH_SLACK = 0.02;
@@ -212,33 +212,35 @@ const permutations = (a: number[]): number[][] =>
   a.length <= 1 ? [a] : a.flatMap((x, i) => permutations([...a.slice(0, i), ...a.slice(i + 1)]).map((p) => [x, ...p]));
 
 /**
- * Cheapest walk from `from` through every objective in `todo` (exact over all orders, ≤ 8), counting the walk home
- * when `home` is given. No objectives: the way home. null if a needed leg is unreachable.
+ * The `count` cheapest walks from `from` through every objective in `todo` (all orders tried, ≤ 8 objectives),
+ * counting the walk home when `home` is given. Cheapest first; equal costs keep the commander's order.
+ * No objectives: the way home. Empty if a needed leg is unreachable.
  */
-export function planTour(L: Lattice, objectives: CostField[], home: CostField | null, from: XZ, todo: number[]): TourPlan | null {
-  if (todo.length > 8) throw new Error('planTour: at most 8 objectives');
+export function rankTours(L: Lattice, objectives: CostField[], home: CostField | null, from: XZ, todo: number[], count = 1): TourPlan[] {
+  if (todo.length > 8) throw new Error('rankTours: at most 8 objectives');
   const memo = new Map<string, number>();
   const cost = (F: CostField, p: XZ, key: string) => memo.get(key) ?? memo.set(key, costFrom(L, F, p)).get(key)!;
-  let order: number[] = [], litres = todo.length ? Infinity : home ? cost(home, from, 'h') : Infinity;
-  for (const o of todo.length ? permutations([...todo].sort((a, b) => a - b)) : []) {
-    let w = cost(objectives[o[0]], from, `s${o[0]}`);
-    for (let k = 1; k < o.length && w < litres; k++) w += cost(objectives[o[k]], objectives[o[k - 1]].goal, `${o[k - 1]}>${o[k]}`);
-    if (home) w += cost(home, objectives[o[o.length - 1]].goal, `h${o[o.length - 1]}`);
-    if (w < litres - 1e-9) { litres = w; order = o; }
+  const goal = (i: number) => objectives[i].goal;
+  const scored = (todo.length ? permutations([...todo].sort((a, b) => a - b)) : home ? [[]] : []).map((order) => {
+    let litres = order.length ? cost(objectives[order[0]], from, `s${order[0]}`) : 0;
+    for (let k = 1; k < order.length; k++) litres += cost(objectives[order[k]], goal(order[k - 1]), `${order[k - 1]}>${order[k]}`);
+    if (home) litres += cost(home, order.length ? goal(order[order.length - 1]) : from, `h${order[order.length - 1] ?? ''}`);
+    return { order, litres };
+  });
+  const tours: TourPlan[] = [];
+  for (const { order, litres } of scored.filter((t) => t.litres < Infinity).sort((a, b) => a.litres - b.litres)) {
+    if (tours.length >= count) break;
+    const legs = order.map((i, k) => pathFrom(L, objectives[i], k ? goal(order[k - 1]) : from));
+    const back = home ? pathFrom(L, home, order.length ? goal(order[order.length - 1]) : from) : [];
+    if (!back || legs.some((leg) => !leg)) continue;
+    tours.push(order.length ? { order, legs: legs as XZ[][], points: dedupe(legs.flat() as XZ[]), back, litres } : { order, legs: [], points: back, back: [], litres });
   }
-  if (!(litres < Infinity)) return null;
-  const legs: XZ[][] = [];
-  let at = from;
-  for (const i of order) {
-    const leg = pathFrom(L, objectives[i], at);
-    if (!leg) return null;
-    legs.push(leg);
-    at = objectives[i].goal;
-  }
-  const back = home ? pathFrom(L, home, at) : [];
-  if (!back) return null;
-  return order.length ? { order, points: dedupe(legs.flat()), back, litres } : { order, points: back, back: [], litres };
+  return tours;
 }
+
+/** The single cheapest tour (see rankTours), or null. */
+export const planTour = (L: Lattice, objectives: CostField[], home: CostField | null, from: XZ, todo: number[]) =>
+  rankTours(L, objectives, home, from, todo)[0] ?? null;
 
 /** Distance from p to the nearest point of a polyline, metres. */
 export function distanceToPath(pts: XZ[], p: XZ): number {

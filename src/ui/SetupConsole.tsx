@@ -31,6 +31,8 @@ export interface SetupLevels {
   minutes: number; // planned EVA time
   evaMinutes: number; // EVA time limit
   metres: number; // walking distance, out and back
+  /** Survival Odds for the plan (src/sim/survival.ts): fractions of 1,000 simulated EVAs. null while planning. */
+  odds?: { success: number; home: number; onTime: number; complete: number; compared: number; mainCause: string | null } | null;
 }
 
 export interface SetupConsoleProps {
@@ -236,7 +238,7 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
             {missions.map((m, i) => (
               <li key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(-1)}>
                 <label className={`plan-task${m.done ? ' is-done' : ''}${hover === i ? ' is-hover' : ''}`}>
-                  <input type="checkbox" checked={!!chosen[i]} disabled={m.done} onChange={() => onToggle(i)} />
+                  <input type="checkbox" checked={chosen[i]} disabled={m.done} onChange={() => onToggle(i)} />
                   <span className="plan-task-num">{i + 1}</span>
                   <span className="plan-task-name">{m.title}</span>
                   <span className="plan-task-meta">{m.done ? 'Done' : `${m.minutes} min · ${Math.round(m.distance)} m away`}</span>
@@ -262,6 +264,19 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
                 </dd>
                 <Meter value={levels.minutes} total={levels.evaMinutes} tone={fitsTime ? (levels.minutes > levels.evaMinutes * 0.85 ? 'warning' : 'ok') : 'danger'} />
               </div>
+              {levels.odds && (
+                <div>
+                  <dt>Survival odds</dt>
+                  <dd>
+                    {Math.floor(levels.odds.success * 100)}%{' '}
+                    <span className="plan-sub">
+                      of 1,000 simulated EVAs got home on time with O₂ to spare · safest of {levels.odds.compared} visiting orders
+                      {levels.odds.mainCause ? ` · main risk: ${levels.odds.mainCause}` : ''}
+                    </span>
+                  </dd>
+                  <Meter value={levels.odds.success} total={1} tone={levels.odds.success >= 0.95 ? 'ok' : levels.odds.success >= 0.8 ? 'warning' : 'danger'} />
+                </div>
+              )}
               <div>
                 <dt>Base oxygen</dt>
                 <dd>
