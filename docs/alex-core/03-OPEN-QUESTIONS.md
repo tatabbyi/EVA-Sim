@@ -1,15 +1,22 @@
 # Open questions — ask now, answer by ID
 
-**State:** ALL unanswered as of 2026-11-14. The user may answer `Q01: ...`, `Q02: unknown`. If the question belongs to a teammate, mark owner/consultant. After answer, set status and add a dated decision in `04-DECISIONS.md`. P0=blocks architecture/meaning, P1=important scientific/feature choice, P2=polish/stretch.
+**State (updated 2026-11-14): Q01–Q05 and Q07 answered and confirmed; Q06 remains OPEN pending team/Victor agreement. Q08–Q36 are still unanswered. Resolved questions are intentionally retained here for traceability. Decisions D-004–D-008 in `04-DECISIONS.md` govern. The user may answer `Q01: ...`, `Q02: unknown`. If the question belongs to a teammate, mark owner/consultant. After answer, set status and add a dated decision in `04-DECISIONS.md`. P0=blocks architecture/meaning, P1=important scientific/feature choice, P2=polish/stretch.
 
 ## Ownership, runtime and sources
 - **Q01 [P0]** Electron-only app, or Electron core **plus a browser-accessible demo** for NASA judging? Which one is the canonical delivery?
+  - **CONFIRMED 2026-11-14:** Electron only; canonical platform. D-004. No browser build agreed.
 - **Q02 [P1]** Target OS: Windows, Linux, macOS; must the app be packaged portable, installed, or only launched with npm during the hackathon?
+  - **CONFIRMED 2026-11-14:** Windows + Linux + macOS. Packaging method not decided. D-004.
 - **Q03 [P0]** Does the app need offline operation? May it call NASA Mars Trek/Perseverance APIs at runtime, or must all layers/images be bundled/cacheable?
+  - **CONFIRMED 2026-11-14:** fully offline runtime. Asset pipeline/packaging remains open. D-005.
 - **Q04 [P0]** When Victor says he improves the 'model', does that mean (a) mesh/3D terrain, (b) geospatial elevation/visibility datasets, (c) walking physics, or (d) all? What artifacts does he provide and by when?
+  - **CONFIRMED 2026-11-14:** Victor provides the improved 3D mesh/geometry; precise file+metadata contracts need coordination. D-006.
 - **Q05 [P0]** Who owns scientific formula and route/Leash calculations now—Nanda as in old plan, Victor, or Alex? Who may approve changes?
+  - **CONFIRMED 2026-11-14:** Alex owns oxygen formulas, routing and Leash. D-007.
 - **Q06 [P0]** Are TEAM-PLAN §2 coordinate axes, grids, tile binary format and meta.json a fixed integration contract with Victor? Can 4096m box/home location change?
+  - **OPEN 2026-11-14:** must be agreed; do not treat the existing TEAM-PLAN contracts as newly approved. Consult Victor; see pending decision in `04-DECISIONS.md`.
 - **Q07 [P1]** Who owns Rachel's shader/HUD final integration? May Alex alter shader/palette freely, or are visual decisions signed off by Rachel?
+  - **CONFIRMED 2026-11-14:** changes to Rachel's visuals require prior agreement. D-008.
 
 ## Walking physics and oxygen
 - **Q08 [P0]** What exactly are the displayed O2 units—physical tank litres, litre equivalents at some reference conditions, or normalized simulated budget? Is 390L a fixed scenario assumption?
