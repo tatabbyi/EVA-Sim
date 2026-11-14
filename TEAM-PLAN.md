@@ -26,9 +26,9 @@ Research notes are in `research/` (files 00 to 13). This plan says who does what
 | Person | Owns | Hands to |
 |---|---|---|
 | **Rachel** | How it looks: terrain shader, colours, HUD design, overlay styling, helmet view, visuals for the demo | Alex (styles, HUD design), Nanda (VR HUD), Aadila (screenshots) |
-| **Alex** | App shell, modes, map, route drawing, Survival Odds worker, Training game rules, Houston view, deploys, merging | Everyone (the running site) |
+| **Alex** | App shell, modes, map,, Survival Odds worker, Training game rules, Houston view, deploys, merging | Everyone (the running site) |
 | **Victor** | Elevation data, reprojection, terrain tiles, height grid, comms viewshed, geologic units, terrain loader | Rachel, Nanda, Alex (all data files) |
-| **Nanda** | Oxygen cost formula, O₂-to-home grid (the Leash), best and par routes, route evaluation, Walk mode camera, WebXR | Alex (cost code, routes), Rachel (Leash grid) |
+| **Nanda** | Oxygen cost formula, O₂-to-home grid (the Leash), route drawing best and par routes, route evaluation, Walk mode camera, WebXR | Alex (cost code, routes), Rachel (Leash grid) |
 | **Aadila** | Story, demo video or slides, submission form, source list, SI disclosure, Local Lead contact, Training task text | Whole team (script, deadlines) |
 
 **Critical path: Victor.** Every visual and pathfinding task needs terrain. That is why Victor ships a quick 4 m grid by 11:00 before the full 1 m pipeline (section 5).
