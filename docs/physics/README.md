@@ -23,6 +23,18 @@
 - [PHYSICS-DEMO-V01.md](PHYSICS-DEMO-V01.md): frozen demo model contract, including engineering defaults. If it differs from newer NASA evidence, **preserve the approved behavior** but explicitly disclose the issue and seek model-parameter approval; never silently relabel a scenario value as NASA data.
 - [CODEX-PHYSICS-DEMO-V01.md](CODEX-PHYSICS-DEMO-V01.md): code implementation instructions and protected-owner files.
 
+## Branch-local Claude Code and Codex agent handoff
+
+The following instructions are present **only in the personal `feat/physics-demo-v01` branch**. They are not intended as a permanent team main policy unless the whole team approves:
+
+- [`../../CLAUDE.md`](../../CLAUDE.md) — Claude Code agent guardrails, read order, file ownership, scope and NASA evidence rules.
+- [`../../AGENTS.md`](../../AGENTS.md) — Codex branch-specific instructions; also points to the full work plan.
+- [IMPLEMENTATION-RUNBOOK.md](IMPLEMENTATION-RUNBOOK.md) — authoritative step-by-step implementation with concrete physics/engine/HUD steps and numerical gates.
+- [CODEX-RUN-PROMPT.md](CODEX-RUN-PROMPT.md) — **ready to copy into Codex**. Implement code, tests, HUD/failure scenario, final report.
+- [AGENT-DELIVERABLES-CHECKLIST.md](AGENT-DELIVERABLES-CHECKLIST.md) — explicit acceptance checklist and ownership audit.
+
+**Status:** All of these are **implementation instructions**, not completed production physics. Agents must write and test the code. A final PR should omit root agent-specific instructions unless accepted by the team.
+
 ## Scope / current status
 - Product sequence: Capsule Setup -> Surface EVA -> Return Home. **Landing is NOT chosen by the player**. Demo uses a predetermined Jezero-compatible site; future release chooses a random supported site automatically.
 - Physics demo: suit-constrained walking/fast motion, signed terrain slopes, a single astronaut/profile, load, metabolic work, oxygen consumption as **grams** and failed mission at exactly zero O2. No live weather, suit heat-flow solver, probabilistic survival, arbitrary Mars landing, or NASA-validated suit gait claim.
