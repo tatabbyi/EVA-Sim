@@ -1,15 +1,12 @@
-# Team handoff: read before development
+# Sharkies — Team Integration Contracts (RAW Engine v0.1)
 
 **Team PR note (2026-11-14):** Real, checked RAW v0.1 exports are documented in [RAW-V01-API-RECONCILIATION.md](RAW-V01-API-RECONCILIATION.md). The separate Nanda planner request, Victor's future region manifest and Rachel's unknown-resource HUD state remain **proposals requiring owner review**. GitHub Actions run 43611705331: native Windows build and both smokes PASS; Linux AppImage built, hosted GUI smoke FAILS because WebGL2 is blocklisted; manual Windows installation and physically disconnected launch remain unverified. Do not treat this contract draft as blanket team approval.
-
-# Sharkies — Team Integration Contracts (RAW Engine v0.1)
 
 **Prepared:** 2026-11-14  
 **Maintainer / integration owner:** Alex  
 **Status:** TEAM REVIEW DRAFT. Shared concepts below; source code and actual API reconciliation are authoritative.
 
 These role contracts are for parallel development against the existing RAW Engine; do not treat source/API proposals as shipped code.
-
 
 
 **AI coding agents:** Read [AI-AGENT-HANDOFF.md](AI-AGENT-HANDOFF.md), this README, then the owner-specific contract and real TypeScript source before editing.
@@ -22,7 +19,7 @@ These role contracts are for parallel development against the existing RAW Engin
 
 ## RAW v0.1 actual API reconciliation — review pending
 
-- **Verified implementation** at `mokachkasss/Sharkies:feat/raw-engine-v01` `2f96c693`: see **[`RAW-V01-API-RECONCILIATION.md`](RAW-V01-API-RECONCILIATION.md)** for exact `RouteContextV1`, `HeightProvider`, `applyRouteCandidate`, `mountScene` and event exports.
+- **Verified implementation** at RAW feature head `80af8c9` (same game interfaces as `2f96c693`; subsequent commits changed CI/smoke only): see **[`RAW-V01-API-RECONCILIATION.md`](RAW-V01-API-RECONCILIATION.md)** for exact `RouteContextV1`, `HeightProvider`, `applyRouteCandidate`, `mountScene` and event exports.
 - These are **real code exports** whereas the Nanda `RouteRequest/RouteOutcome` and Victor `RegionManifestV1` in draft documents are still **proposals**. AI agents must not mix them up.
 - Native Windows CI PASS; Linux AppImage build PASS, runner GUI smoke blocked by WebGL2. See the status note above.
 - AI agents must check out the actual PR branch and read its source instead of assuming remote access.
@@ -63,7 +60,7 @@ All components agree on the **same `frameId` per region**, otherwise the handoff
 ### Proposed portable cross-team types (design only)
 
 ```ts
-// These are CONTRACT EXAMPLES, NOT verified exports in the in-progress Codex branch.
+// Conceptual cross-team examples, NOT importable RAW v0.1 exports.
 export type XZ = { x: number; z: number }; // m, finite
 export type Bounds = { minX: number; maxX: number; minZ: number; maxZ: number };
 export type TaskId = 'abrade-rock' | 'take-core' | 'sample-depot' | 'run-moxie';
@@ -118,9 +115,9 @@ Each teammate should provide **one PR or clearly named branch** with:
 ### Alex's final merge gate (after Codex)
 
 - Pull fresh team `main`; compare completed Codex `feat/raw-engine-v01` exports to the **proposed** signatures here.
-- Fill an **API reconciliation table**: proposal → actual type/path → adjustments → owner's approval. Only then promote each contract status to **READY TO IMPLEMENT / ACCEPTED** and share final paths.
+- Fill an **API reconciliation table**: proposal → actual type/path → adjustments → owner's approval. Only after owner review promote contract sections to **ACCEPTED** and share approved import paths.
 - Smoke test `#preview`, 3D scene in Electron, one Victor height fixture, one Nanda route fixture and one Rachel HUD/animation event.
-- Build Windows+Linux offline artifacts again after integrating the branches; run what can genuinely be tested and report unavailable Windows GUI runtime evidence.
+- Build Windows+Linux offline artifacts again after integrating the branches; run what can genuinely be tested and report the native Windows smoke evidence and any unverified manual Windows installation.
 
 ## 5. Coordination issues that remain open
 
