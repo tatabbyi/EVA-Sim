@@ -2,6 +2,16 @@
 
 Final objective: reviewer-friendly, ordered implementation prompt series **based only on accepted project blocks and decisions**. Keep scoped stages, one atomic change per step, with review gates and source references.
 
+## Confirmed delivery constraints (2026-11-14)
+- Build for **Electron only**; explicitly target **Windows, Linux, macOS**. No browser app should be introduced as an unrequested feature.
+- App **must run entirely offline** (no essential runtime CDN, NASA API, Mars Trek tile fetch, hosted backend, external font or remote asset).
+- **Alex** owns formula implementation, route solver/logic and Leash; **Victor** provides improved 3D mesh/geometry (unknown format). Require a written, agreed geometry/coordinate/data contract before consuming Victor's deliverables.
+- Protect Rachel's shader/HUD/beacon/palette from unsolicited edits; ask for approval if modifications are necessary.
+- Existing `src/` is Vite/React skeleton; treat migration to Electron as a scoped change, not as proof that any rendering problem has been solved.
+- Cross-platform packaging, asset distribution, security architecture and performance acceptance tests still need specific decisions.
+- **Performance expectation:** do NOT claim Electron is unlimited or automatically lag-free; include reproducible profiling benchmarks after requirements are specified.
+- Source references: `04-DECISIONS.md` D-004–D-008 and `03-OPEN-QUESTIONS.md` Q01–Q07.
+
 ## Suggested prompt pipeline (subject to scope blocks)
 1. **Repository read-only inventory and gap analysis**: inspect exact tree, preserve contributors' files, map planned APIs to stubs; no modifications.
 2. **Electron foundation**: decide platform(s), main/preload/renderer boundary, start/build scripts, secure asset/data access, dev/prod mode.
@@ -36,6 +46,6 @@ Final objective: reviewer-friendly, ordered implementation prompt series **based
 - Unit tests for formulas and coordinate transforms.
 - Integration tests for missing real data and invalid bytes.
 - Inspect security boundary if Electron API exposed.
-- Browser/Electron rendering smoke test.
+- Electron rendering smoke test on target OSes; offline launch smoke test.
 - Verify scientific claims remain labelled as assumptions where appropriate.
 - Review diff manually before merging.
