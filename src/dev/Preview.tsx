@@ -45,7 +45,8 @@ import type { Mission, Region, TaskId } from '../core/contracts';
 import { createFixedClock } from '../adapters/clock';
 import { applyRouteCandidate } from '../adapters/routes';
 import { createHeightGrid, type HeightProvider } from '../adapters/world';
-import { buildLattice, costFrom, distanceToPath, pathLength, planTour, type TourPlan } from '../sim/pathfind';
+import { buildLattice, costFrom, distanceToPath, pathLength, planTour, rankTours, type TourPlan } from '../sim/pathfind';
+import { buildSteps, safestTour, simulate, type Odds } from '../sim/survival';
 import { createPathPlanner, type PathPlanner } from '../sim/planner';
 import { setCostTerrain, setHomeCost } from '../sim/cost';
 import './Preview.css';
@@ -87,6 +88,9 @@ const OFF_ROUTE_M = 10; // farther than this from the guide: re-plan from where 
 const REPLAN_EVERY_S = 0.5; // how often to check
 /** Plans from any point through objectives `todo` (cheapest order), counting the walk home unless toHome is false. */
 type PlanFrom = (from: XZ, todo: number[], toHome?: boolean) => TourPlan | null;
+/** Survival Odds (src/sim/survival.ts): the safest of the cheapest visiting orders, with its odds. */
+type SafestFrom = (from: XZ, todo: number[]) => { plan: TourPlan; odds: Odds; compared: number } | null;
+const CANDIDATE_ORDERS = 6; // how many of the cheapest visiting orders get 1,000 simulated EVAs each
 const RESERVE_MINUTES = 30; // O2 kept back, as minutes of resting in the suit (meta.json o2.reserveMinutes)
 const BASE_O2_CAPACITY = 3000; // litres the base store holds
 const ISRU_L_PER_MIN = 58 / 60; // the base O2 plant (MOXIE-style ISRU), litres per minute
@@ -169,8 +173,9 @@ export function Preview() {
   const leaveConsoleRef = useRef<() => void>(() => {});
   const launchRef = useRef<() => string | null>(() => null); // go out through the airlock; returns why not, if not
   const consoleRef = useRef<HTMLDivElement | null>(null);
-  const beginEvaRef = useRef<(chosen: boolean[]) => void>(() => {});
+  const beginEvaRef = useRef<(chosen: boolean[], plan: TourPlan | null) => void>(() => {});
   const planRef = useRef<PlanFrom | null>(null); // the path planner, once its fields are ready
+  const safestRef = useRef<SafestFrom | null>(null);
   const straightRef = useRef<(pts: XZ[]) => XZ[]>((p) => p); // straight out of the airlock (set in the scene)
   const enterBaseRef = useRef<() => void>(() => {});
   const evaStartRef = useRef(0);
@@ -597,11 +602,10 @@ export function Preview() {
     goHomeRef.current = goHome;
 
     // BEGIN EVA at the console: suit filled, out through the airlock, only the picked missions are out there.
-    beginEvaRef.current = (flags) => {
+    // plan: the tour the console showed (the safest visiting order); walked from the airlock.
+    beginEvaRef.current = (flags, plan) => {
       if (!base || !heights) return;
       const shuttle = { x: base.door.x, z: base.door.z };
-      // Airlock through the picked objectives in the cheapest order (walk home counted).
-      const plan = planFrom?.(shuttle, flags.flatMap((f, i) => (f ? [i] : [])));
       if (!plan || plan.points.length < 2) return void setNotice({ level: 'warning', title: 'ROUTE UNAVAILABLE', message: 'No walkable path to the picked objectives.' });
       const plannedRoute = straightAtDoor(plan.points);
       const engine = replaceRuntime(flags, shuttle, plannedRoute);
@@ -761,6 +765,11 @@ export function Preview() {
         const [home, ...fields] = await Promise.all([door0, ...STOPS].map((g) => pathPlanner!.field(g)));
         planFrom = (from, todo, toHome = true) => planTour(L, fields, toHome ? home : null, from, todo);
         setHomeCost((x, z) => costFrom(L, home, { x, z }));
+        // Survival Odds: simulate each candidate order 1,000 times with the console's suit and task numbers.
+        const suit = { tankL: O2_CAPACITY, reserveL: RESERVE_MINUTES * REST_O2_PER_MIN, restLPerMin: REST_O2_PER_MIN, limitMin: EVA_MINUTES };
+        const task = (i: number) => ({ minutes: TASK_PLAN[i].minutes, o2PerMin: TASK_O2_PER_MIN[TASK_PLAN[i].kind] });
+        safestRef.current = (from, todo) =>
+          safestTour(rankTours(L, fields, home, from, todo, CANDIDATE_ORDERS), (p) => simulate(buildSteps(p, task, groundAt), suit, (q) => costFrom(L, home, q)));
       } catch (err) {
         console.warn('Path planner unavailable', err);
       }
@@ -1306,11 +1315,13 @@ export function Preview() {
   }));
   const planIdx = TASK_PLAN.map((_, i) => i).filter((i) => chosen[i] && !objDone[i]);
   const planKey = planIdx.join(',');
-  // The planned EVA: airlock → picked objectives in the cheapest order → airlock (src/sim/pathfind.ts).
-  const tour = useMemo(
-    () => (plannerReady && planKey ? planRef.current?.(door, planKey.split(',').map(Number)) ?? null : null),
+  // The planned EVA: airlock → picked objectives → airlock, in the visiting order most likely to get you home
+  // (Survival Odds over the cheapest orders; src/sim/survival.ts).
+  const safest = useMemo(
+    () => (plannerReady && planKey ? safestRef.current?.(door, planKey.split(',').map(Number)) ?? null : null),
     [plannerReady, door, planKey],
   );
+  const tour = safest?.plan ?? null;
   const setupRoute: XZ[] = useMemo(() => (tour ? straightRef.current([...tour.points, ...tour.back.slice(1)]) : [door]), [tour, door]);
   const routeTo = tour ? setupRoute.length - 1 : -1; // the whole route is the plan
   const walk = useMemo(() => {
@@ -1333,6 +1344,7 @@ export function Preview() {
       minutes: (out.seconds + back.seconds) / 60 + taskMinutes,
       evaMinutes: EVA_MINUTES,
       metres: out.metres + back.metres,
+      odds: safest ? { ...safest.odds, compared: safest.compared } : null,
     };
   }
   const planFits = !!levels && levels.walkLitres + levels.taskLitres + levels.reserve <= levels.tank && levels.minutes <= levels.evaMinutes;
@@ -1351,7 +1363,7 @@ export function Preview() {
     setNotice(null);
     setInteraction({ kind: 'none' });
     setMode('eva');
-    beginEvaRef.current(chosen.map((c, i) => c && !objDone[i]));
+    beginEvaRef.current(chosen.map((c, i) => c && !objDone[i]), tour);
   };
   launchRef.current = () => {
     if (launchWhy) return launchWhy;
