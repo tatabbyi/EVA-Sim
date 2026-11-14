@@ -1,0 +1,13 @@
+{
+  "appId": "org.sharkies.eva.raw",
+  "productName": "EVA RAW",
+  "directories": { "output": "release" },
+  "files": ["dist/**/*", "electron/**/*", "package.json"],
+  "asar": true,
+  "npmRebuild": false,
+  "publish": null,
+  "artifactName": "EVA-RAW-${version}-${os}-${arch}.${ext}",
+  "linux": { "target": [{ "target": "AppImage", "arch": ["x64"] }], "category": "Education", "maintainer": "Sharkies team" },
+  "win": { "target": [{ "target": "nsis", "arch": ["x64"] }] },
+  "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+}

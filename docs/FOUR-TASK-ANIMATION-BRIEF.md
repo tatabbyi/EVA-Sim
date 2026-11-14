@@ -49,6 +49,6 @@ The astronaut lands on Mars in a shuttle, takes the tools needed for the mission
 - Provide a short preview of each animation and identify its required 3D props. If producing scene/animation files, keep task assets separately named so they can be integrated without bringing in demo-only game logic.
 - The shuttle's landing/takeoff uses **separate short cutscenes**; it is **not** one of these four animations.
 
-**References:** `research/10-training-tasks.md` (historical Perseverance-inspired visual actions); `docs/alex-core/09-TRAINING-MISSION.md` (current accepted task scope); `docs/alex-core/04-DECISIONS.md` (D-018, D-020, D-023, D-024, D-037, D-039); Rachel's `src/terrain/sampleSite.ts` (existing coring visual prototype).
+**References:** `research/10-training-tasks.md` (historic task background), `src/core/contracts.ts` (four actual TaskId strings), [`docs/integration/RACHEL-VISUALS.md`](integration/RACHEL-VISUALS.md) (scene/animation handoff), and Rachel's `src/terrain/sampleSite.ts` (existing combined visual prototype).
 
 > **Boundary for animators:** Make the **visual actions and assets**. Alex handles task selection, timing, inventory/mass, physics, resources, success/failure and integration with the engine.
