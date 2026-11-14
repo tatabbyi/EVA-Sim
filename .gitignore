@@ -10,3 +10,5 @@ pipeline/work/
 *.tif
 *.tif.aux.xml
 __pycache__/
+.idea/
+.vscode/
