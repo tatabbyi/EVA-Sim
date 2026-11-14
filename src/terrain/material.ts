@@ -6,9 +6,9 @@
 
 import * as THREE from 'three';
 import { BOX_HALF } from '../shared/coords';
-import { palette, terrainRamp } from '../ui/palette';
+import { defaultTerrainPreset, palette, terrainPresets, type TerrainPresetName } from '../ui/palette';
 
-const RAMP_SIZE = terrainRamp.length; // 7
+const MAX_RAMP = 8; // most colours a ground look can have
 
 const vertexShader = /* glsl */ `
 varying vec3 vPosW;
@@ -25,9 +25,10 @@ void main() {
 const fragmentShader = /* glsl */ `
 precision highp float;
 
-#define RAMP_SIZE ${RAMP_SIZE}
+#define MAX_RAMP ${MAX_RAMP}
 
-uniform vec3 uRamp[RAMP_SIZE];
+uniform vec3 uRamp[MAX_RAMP];
+uniform float uRampN;        // how many of the ramp colours are used
 uniform float uHeightMin;     // height (m, relative to h0) at the bottom of the ramp
 uniform float uHeightMax;     // height at the top of the ramp
 uniform float uBanding;       // 0 = smooth rainbow, 1 = flat colour band per minor contour
@@ -68,6 +69,7 @@ uniform vec2 uGridOrigin;     // world x/z of sample (0,0)
 uniform float uGridCell;
 uniform float uGridN;
 
+uniform float uDetail;       // 0 = smooth, 1 = full close-up surface detail (bumps and grit)
 uniform vec3 uFogColor;
 uniform float uFogNear;
 uniform float uFogFar;
@@ -76,16 +78,16 @@ varying vec3 vPosW;
 varying vec3 vNormalW;
 
 vec3 ramp(float t) {
-  float x = clamp(t, 0.0, 1.0) * float(RAMP_SIZE - 1);
-  int i = int(min(floor(x), float(RAMP_SIZE - 2)));
+  float x = clamp(t, 0.0, 1.0) * (uRampN - 1.0);
+  int i = int(min(floor(x), uRampN - 2.0));
   return mix(uRamp[i], uRamp[i + 1], x - float(i));
 }
 
-// Repeating rainbow: red runs back into violet, so small local bumps still show many colours.
+// Repeating ramp: the last colour runs back into the first, so small local bumps still show many colours.
 vec3 rampCyclic(float t) {
-  float x = fract(t) * float(RAMP_SIZE);
+  float x = fract(t) * uRampN;
   int i = int(floor(x));
-  int j = i + 1 >= RAMP_SIZE ? 0 : i + 1;
+  int j = float(i + 1) >= uRampN ? 0 : i + 1;
   return mix(uRamp[i], uRamp[j], x - float(i));
 }
 
@@ -97,6 +99,27 @@ float isoLine(float v, float interval, float widthPx) {
   float d = abs(fract(c - 0.5) - 0.5) / fw;
   float line = 1.0 - clamp(d / widthPx, 0.0, 1.0);
   return line * (1.0 - smoothstep(0.2, 0.7, fw));
+}
+
+// Value noise for close-up ground detail.
+float hash12(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+float fbm(vec2 p) {
+  float a = 0.5, s = 0.0;
+  for (int k = 0; k < 4; k++) {
+    s += a * vnoise(p);
+    p *= 2.07;
+    a *= 0.5;
+  }
+  return s;
 }
 
 vec2 gridCoord(vec2 xz) {
@@ -133,9 +156,22 @@ void main() {
   float lambert = max(dot(n, normalize(uSunDir)), 0.0);
   vec3 col = mix(uShadow, base, uAmbient + (1.0 - uAmbient) * lambert);
 
+  // 2b. Close-up surface detail: small bumps catch the sun, fine grit in the colour. Fades out with distance
+  // (no shimmer far away) and is cheap enough to run per pixel.
+  float near = (1.0 - smoothstep(20.0, 110.0, length(cameraPosition - vPosW))) * uDetail;
+  if (near > 0.001) {
+    vec2 q = vPosW.xz * 0.9;
+    float e = 0.12;
+    float h0 = fbm(q), hx = fbm(q + vec2(e, 0.0)), hz = fbm(q + vec2(0.0, e));
+    vec3 nd = normalize(n + vec3(-(hx - h0), 0.0, -(hz - h0)) / e * 0.45 * near);
+    float lambertD = max(dot(nd, normalize(uSunDir)), 0.0);
+    col = mix(col, mix(uShadow, base, uAmbient + (1.0 - uAmbient) * lambertD), near);
+    col *= 1.0 + (fbm(vPosW.xz * 6.0) - 0.5) * 0.22 * near;
+  }
+
   // 3. Steep ground: tint from uSlopeWarn up to the uSlopeMax limit (25°, research/02).
   float slope = degrees(acos(clamp(n.y, -1.0, 1.0)));
-  col = mix(col, uSteepColor, smoothstep(uSlopeWarn, uSlopeMax, slope) * 0.5);
+  col = mix(col, uSteepColor, smoothstep(uSlopeWarn, uSlopeMax, slope) * 0.28);
 
   // 4. Comms: diagonal hatching, so it reads as "no signal" without hiding the ground.
   if (uHasComms > 0.5) {
@@ -206,7 +242,8 @@ export function makeByteGridTexture(data: Uint8Array, n: number): THREE.DataText
 
 export function createTerrainUniforms() {
   return {
-    uRamp: { value: terrainRamp.map(color) },
+    uRamp: { value: Array.from({ length: MAX_RAMP }, () => new THREE.Color()) },
+    uRampN: { value: 2 },
     uHeightMin: { value: -60 },
     uHeightMax: { value: 60 },
     uBanding: { value: 0 },
@@ -247,6 +284,7 @@ export function createTerrainUniforms() {
     uGridCell: { value: 2 },
     uGridN: { value: 2049 },
 
+    uDetail: { value: 0.8 },
     uFogColor: { value: color(palette.space) },
     uFogNear: { value: 1200 },
     uFogFar: { value: 3800 },
@@ -256,12 +294,26 @@ export function createTerrainUniforms() {
 export type TerrainUniforms = ReturnType<typeof createTerrainUniforms>;
 export type TerrainMaterial = THREE.ShaderMaterial & { uniforms: TerrainUniforms };
 
-export function createTerrainMaterial(): TerrainMaterial {
-  return new THREE.ShaderMaterial({
+export function createTerrainMaterial(preset: TerrainPresetName = defaultTerrainPreset): TerrainMaterial {
+  const mat = new THREE.ShaderMaterial({
     uniforms: createTerrainUniforms(),
     vertexShader,
     fragmentShader,
   }) as TerrainMaterial;
+  setTerrainPreset(mat, preset);
+  return mat;
+}
+
+/** Switch the ground colour look (ramp, repeat, contour colour) live. */
+export function setTerrainPreset(mat: TerrainMaterial, name: TerrainPresetName): void {
+  const p = terrainPresets[name];
+  const u = mat.uniforms;
+  for (let i = 0; i < MAX_RAMP; i++) u.uRamp.value[i].set(p.ramp[Math.min(i, p.ramp.length - 1)]);
+  u.uRampN.value = Math.min(p.ramp.length, MAX_RAMP);
+  u.uCycle.value = p.cycle;
+  u.uLine.value.set(p.line);
+  u.uMinorStrength.value = p.lineStrength;
+  u.uMajorStrength.value = Math.min(1, p.lineStrength * 2.2);
 }
 
 /** Stretch the rainbow over the real height range once the terrain is loaded. */

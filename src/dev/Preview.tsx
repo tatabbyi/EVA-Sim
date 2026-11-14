@@ -10,17 +10,18 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import GUI from 'lil-gui';
-import { createTerrainMaterial, setHeightRange } from '../terrain/material';
+import { createTerrainMaterial, setHeightRange, setTerrainPreset } from '../terrain/material';
 import { createStarrySky } from '../terrain/sky';
 import { createRoutePath, type RoutePath } from '../terrain/routePath';
 import { createSampleSite, type SampleSite } from '../terrain/sampleSite';
 import { HelmetHud, type HudAlert, type SuitBar } from '../ui/HelmetHud';
 import { createHeadSway } from '../ui/headSway';
-import { palette } from '../ui/palette';
+import { defaultTerrainPreset, palette, terrainPresets, type TerrainPresetName } from '../ui/palette';
 import { loadMeta } from '../shared/meta';
 import { loadFloatGrid, sampleBilinear, type Grid } from '../shared/grids';
 import type { XZ } from '../shared/coords';
 import { createAdaptiveResolution } from '../shared/perf';
+import { createVisorLens } from '../terrain/visorLens';
 import './Preview.css';
 
 const EYE = 1.7;
@@ -78,6 +79,7 @@ export function Preview() {
   const rootRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const startSampleRef = useRef<() => void>(() => {});
+  const goHomeRef = useRef<() => void>(() => {});
   const swayRef = useRef<HTMLDivElement | null>(null);
   const fpsRef = useRef<HTMLSpanElement>(null);
   const [terrainNote, setTerrainNote] = useState('Loading terrain…');
@@ -85,12 +87,18 @@ export function Preview() {
   const [notice, setNotice] = useState<HudAlert | null>(null);
   const [interaction, setInteraction] = useState<Interaction>({ kind: 'none' });
   const [stopsDone, setStopsDone] = useState(0);
+  const [headingHome, setHeadingHome] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(45 * 60); // sample mission clock, counts down live
 
   useEffect(() => {
     const t = window.setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000);
     return () => window.clearInterval(t);
   }, []);
+
+  // Out of time: objectives are dropped and the path turns for home (whiteboard rule).
+  useEffect(() => {
+    if (secondsLeft === 0) goHomeRef.current();
+  }, [secondsLeft]);
 
   useEffect(() => {
     const root = rootRef.current!;
@@ -99,13 +107,15 @@ export function Preview() {
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     const res = createAdaptiveResolution(renderer); // lowers resolution if frames run slow
+    const lens = createVisorLens(renderer);
     const pr = res.pixelRatio;
     renderer.setSize(host.clientWidth, host.clientHeight);
     host.replaceChildren(renderer.domElement);
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(palette.space);
-    const camera = new THREE.PerspectiveCamera(70, host.clientWidth / host.clientHeight, 0.05, 8000);
+    // Wider than a normal game camera: the dome lens bends the edges in, like looking through a bubble helmet.
+    const camera = new THREE.PerspectiveCamera(80, host.clientWidth / host.clientHeight, 0.05, 8000);
     camera.position.set(0, EYE, 0);
     camera.lookAt(STOPS[0].x, EYE, STOPS[0].z); // face the first stop
 
@@ -149,6 +159,8 @@ export function Preview() {
 
     // Sampling state (game rules for the preview only)
     let active = -1; // index of the site being sampled
+    let sampled = 0;
+    let homeBound = false;
     let near = -1;
     let lastPct = -1;
     const lookTarget = new THREE.Quaternion();
@@ -160,6 +172,35 @@ export function Preview() {
       lastPct = -1;
       controls.enabled = false; // the suit holds your view on the rock while the corer works
     };
+
+    // The way home: a new path from where you stand, back along the route you came, to the landing site.
+    const goHome = () => {
+      if (homeBound || !heights) return;
+      homeBound = true;
+      const cx = camera.position.x, cz = camera.position.z;
+      let k = 0, best = Infinity;
+      ROUTE.forEach((p, i) => {
+        const d = (p.x - cx) ** 2 + (p.z - cz) ** 2;
+        if (d < best) {
+          best = d;
+          k = i;
+        }
+      });
+      const pts: XZ[] = [{ x: cx, z: cz }];
+      for (let i = k; i >= 0; i--) {
+        const prev = pts[pts.length - 1];
+        if (Math.hypot(ROUTE[i].x - prev.x, ROUTE[i].z - prev.z) > 1.5) pts.push(ROUTE[i]);
+      }
+      if (pts.length < 2) pts.push(ROUTE[0]);
+      if (route) {
+        scene.remove(route.group);
+        route.dispose();
+      }
+      route = createRoutePath(pts, groundAt);
+      scene.add(route.group);
+      setHeadingHome(true);
+    };
+    goHomeRef.current = goHome;
 
     (async () => {
       let grid: Grid<Float32Array> | null = null;
@@ -220,6 +261,14 @@ export function Preview() {
     const gui = new GUI({ title: 'Look' });
     gui.close(); // starts collapsed so it doesn't cover the HUD bars
     const t = gui.addFolder('Terrain');
+    const look = { colours: defaultTerrainPreset as TerrainPresetName };
+    const presetOptions = Object.fromEntries(Object.entries(terrainPresets).map(([key, p]) => [p.label, key]));
+    t.add(look, 'colours', presetOptions)
+      .name('ground colours')
+      .onChange((name: TerrainPresetName) => {
+        setTerrainPreset(material, name);
+        gui.controllersRecursive().forEach((c) => c.updateDisplay());
+      });
     t.add(u.uCycle, 'value', 0, 100, 1).name('rainbow repeat (m, 0 = off)');
     t.add(u.uBanding, 'value', 0, 1, 0.05).name('rainbow banding');
     t.add(u.uSaturation, 'value', 0, 1, 0.05).name('saturation');
@@ -227,6 +276,7 @@ export function Preview() {
     t.add(u.uMajor, 'value', 5, 100, 5).name('major contour (m)');
     t.add(u.uMinorStrength, 'value', 0, 1, 0.05).name('minor line strength');
     t.add(u.uAmbient, 'value', 0, 1, 0.01).name('ambient light');
+    t.add(u.uDetail, 'value', 0, 1, 0.05).name('close-up surface detail');
     const sun = { azimuth: 135, elevation: 30 };
     const setSun = () => {
       const az = THREE.MathUtils.degToRad(sun.azimuth), el = THREE.MathUtils.degToRad(sun.elevation);
@@ -236,6 +286,9 @@ export function Preview() {
     setSun();
     t.add(sun, 'azimuth', 0, 360, 1).name('sun azimuth (°)').onChange(setSun);
     t.add(sun, 'elevation', -5, 90, 1).name('sun elevation (°)').onChange(setSun);
+    const helmet = gui.addFolder('Helmet');
+    helmet.add(lens.uniforms.uK, 'value', 0, 0.5, 0.01).name('dome curvature');
+    helmet.add(lens.uniforms.uCA, 'value', 0, 0.03, 0.001).name('edge colour fringing');
     const h = gui.addFolder('HUD sample values');
     const hs = { o2: 280, tempC: -63, cyclone: false };
     h.add(hs, 'o2', 0, O2_CAPACITY, 1).name('O₂ (L)').onChange((v: number) => setSample((p) => ({ ...p, o2: v })));
@@ -288,6 +341,8 @@ export function Preview() {
           setInteraction({ kind: 'stored' });
           setSample((p) => ({ ...p, done: p.done + 1 }));
           setStopsDone((n) => n + 1);
+          sampled++;
+          if (sampled === STOPS.length) goHome(); // all samples taken: the path turns for home
           window.setTimeout(() => setInteraction((cur) => (cur.kind === 'stored' ? { kind: 'none' } : cur)), 2200);
         }
       } else {
@@ -305,9 +360,10 @@ export function Preview() {
 
       sway.step(dt, running ? 2 : moving ? 1 : 0);
       sky.update(camera, time);
+      route?.setProgress(camera.position.x, camera.position.z);
       route?.update(time);
       for (const site of sites) site.update(dt, time, camera);
-      renderer.render(scene, camera);
+      lens.render(scene, camera);
     });
 
     const ro = new ResizeObserver(() => {
@@ -333,6 +389,7 @@ export function Preview() {
       for (const site of sites) site.dispose();
       terrain?.geometry.dispose();
       material.dispose();
+      lens.dispose();
       renderer.dispose();
       host.replaceChildren();
     };
@@ -344,6 +401,7 @@ export function Preview() {
     message: 'Switch waypoint to home?',
     onAccept: () => {
       setSample((p) => ({ ...p, cyclone: false }));
+      goHomeRef.current();
       setNotice({ level: 'info', title: 'WAYPOINT', message: 'Heading home' });
       window.setTimeout(() => setNotice(null), 2500);
     },
@@ -359,7 +417,7 @@ export function Preview() {
           ? { level: 'info', title: 'SAMPLE STORED', message: 'Tube sealed and stowed' }
           : notice;
 
-  const current = stopsDone < STOPS.length ? `Rock sample (${stopsDone + 1} of ${STOPS.length})` : 'Head home';
+  const current = headingHome || stopsDone >= STOPS.length ? 'Head home' : `Rock sample (${stopsDone + 1} of ${STOPS.length})`;
 
   return (
     <div ref={rootRef} className="preview">

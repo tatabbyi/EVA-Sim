@@ -42,7 +42,8 @@ export function createHeadSway(target: HTMLElement): HeadSway {
       const bobY = Math.abs(Math.sin(phase)) * amp;
 
       // Rounded so a helmet at rest stops touching the DOM entirely.
-      const tf = `translate3d(${(x + bobX).toFixed(1)}px, ${(y + bobY).toFixed(1)}px, 0) rotate(${(x * 0.04).toFixed(2)}deg)`;
+      // Whole pixels and no rotation: the helmet layer is then moved, never resampled, so text and edges stay crisp.
+      const tf = `translate3d(${Math.round(x + bobX)}px, ${Math.round(y + bobY)}px, 0)`;
       if (tf !== last) {
         target.style.transform = tf;
         last = tf;

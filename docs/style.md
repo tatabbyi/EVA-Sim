@@ -6,8 +6,8 @@ Preview everything at `/#preview`: click to look, WASD to walk, Shift to run, E 
 
 ## The look
 
-- **World:** colourful pastel topography under a starry night sky. Height cycles through Rachel's pastel palette: pink (at the landing-site height), peach, apricot, cream and sage, repeating every 3 m of height so even the very flat crater floor shows colour (adjustable; 0 = one rainbow over the whole height range), with soft warm grey-brown contour lines on top (thin every 1 m, bold every 5 m). Lines fade out where they would be denser than the pixels. Sunlight still shades the slopes so the shape reads.
-- **Helmet:** you're inside a realistic NASA-style helmet. Cream/beige interior (`--c-helmet`, `#e6dcc8`) that's out of focus because it's centimetres from the eye, a solid dark rubber seal where the glass meets it (nothing shows through the joint), a cream neck ring at the bottom, a faint gold sun-visor tint at the top, dust, smudges, blurry reflections and breath fog on the glass.
+- **World:** the real Jezero terrain under a starry night sky. Ground colour looks are switchable (Look panel > Terrain > ground colours, `terrainPresets` in `palette.ts`): **Realistic Mars** (default: rust, butterscotch, tan), Pastel, Mars ochre, Topographic map, Sandstone, Thermal. Each repeats with height so even the flat crater floor shows variation, with contour lines on top (thin every 1 m, bold every 5 m) and close-up surface detail (bumps and grit) that fades with distance. Steep ground (20° to 25°) gets a muted red tint.
+- **Helmet:** you're inside a realistic NASA-style bubble helmet: a wide dome opening, the world seen through it with a gentle fisheye curve and slight colour fringing at the edges (`src/terrain/visorLens.ts`, desktop only), a thick clear rim catching light, and suit hardware at the chin (microphone, white valve caps, connector, cables). Cream/beige suit fabric with a lit woven texture and soft folds (`--c-helmet`, `#e6dcc8`) that's out of focus because it's centimetres from the eye, a solid dark rubber seal where the glass meets it (nothing shows through the joint), a cream neck ring at the bottom, a faint gold sun-visor tint at the top, dust, smudges, blurry reflections and breath fog on the glass.
 - **UI:** translucent glass panels (blurred, thin bright edge), one colour per suit reading. Nothing on screen that isn't needed.
 
 ## Colours
@@ -15,8 +15,8 @@ Preview everything at `/#preview`: click to look, WASD to walk, Shift to run, E 
 | Use | Variable | Hex |
 |---|---|---|
 | Sky | `--c-space` | `#02030a` |
-| Contour lines and outlines | `--c-line` | `#8a6a63` |
-| Steep ground (20° to 25°) | `--c-steep` | `#ff2d55` |
+| Contour lines and outlines | `--c-line` | set per ground look (default `#3b2418`) |
+| Steep ground (20° to 25°) | `--c-steep` | `#d9483b` |
 | Leash line / beyond the Leash | `--c-leash-limit` | `#ff3b30` |
 | Approaching the Leash | `--c-leash-warn` | `#ffd60a` |
 | Comms marginal / dead (hatched) | `--c-comms-marginal` / `--c-comms-dead` | `#ffd60a` / `#bf5af2` |
@@ -27,7 +27,7 @@ Preview everything at `/#preview`: click to look, WASD to walk, Shift to run, E 
 | Glass panel fill / edge | `--c-glass` / `--c-glass-edge` | 10% / 35% pale blue |
 | Danger / warning / ok | `--c-danger` / `--c-warning` / `--c-ok` | `#ff3b30` / `#ffd60a` / `#30d158` |
 
-Terrain ramp (one loop): `#EBAFAF` pink, `#FFC2AA` peach, `#FAD5B3` apricot, `#FBF6D2` cream, `#E2ECC0` sage. Also available as `--terrain-ramp` for a legend.
+Ground colour looks live in `terrainPresets` (`src/ui/palette.ts`); default **Realistic Mars**: `#8a5a3c`, `#a86d45`, `#c08a5b`, `#b07850`, `#9a6545`, `#c79a6e`, `#7d5236`, repeating every 6 m, contour lines `#3b2418`. Pastel keeps Rachel's palette (`#EBAFAF`, `#FFC2AA`, `#FAD5B3`, `#FBF6D2`, `#E2ECC0`). The default ramp is also available as `--terrain-ramp` for a legend.
 
 ### Suit readings: one colour each
 
