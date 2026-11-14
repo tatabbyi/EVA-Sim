@@ -13,7 +13,8 @@ import GUI from 'lil-gui';
 import { createTerrainMaterial, setHeightRange, setTerrainPreset } from '../terrain/material';
 import { createStarrySky } from '../terrain/sky';
 import { createRoutePath, type RoutePath } from '../terrain/routePath';
-import { createSampleSite, type SampleSite } from '../terrain/sampleSite';
+import { createSampleSite } from '../terrain/sampleSite';
+import { coreTask, createLaserTask, createPanoramaTask, type TaskKind, type TaskSite } from '../terrain/tasks';
 import { HelmetHud, type HudAlert, type SuitBar } from '../ui/HelmetHud';
 import { createHeadSway } from '../ui/headSway';
 import { defaultTerrainPreset, palette, terrainPresets, type TerrainPresetName } from '../ui/palette';
@@ -22,6 +23,7 @@ import { loadFloatGrid, sampleBilinear, type Grid } from '../shared/grids';
 import type { XZ } from '../shared/coords';
 import { createAdaptiveResolution } from '../shared/perf';
 import { createVisorLens } from '../terrain/visorLens';
+import { createHelmetInterior } from '../terrain/helmetInterior';
 import './Preview.css';
 
 const EYE = 1.7;
@@ -30,26 +32,26 @@ const O2_CAPACITY = 390;
 // Game speeds, faster than a real suited walk (about 1 m/s) so the demo doesn't drag. The O2 maths uses real speeds.
 const WALK = 2.2; // m/s
 const RUN = 4.6;
-const REACH = 3; // metres: close enough to take a sample
-const PHASE_TEXT: Record<string, string> = {
-  lowering: 'Positioning corer',
-  drilling: 'Drilling core',
-  raising: 'Extracting core',
-  stowing: 'Sealing tube',
-};
 
 // Sample route from the landing site towards the delta (west-north-west), stops marked.
 const ROUTE: XZ[] = [
   { x: 0, z: 0 }, { x: -8, z: -20 }, { x: -20, z: -45 }, { x: -55, z: -70 },
   { x: -90, z: -110 }, { x: -140, z: -130 }, { x: -190, z: -170 },
 ];
-// Stops sit 1.8 m to the side of the path, like a rock you step off the track to sample.
-const STOPS: XZ[] = [2, 4, 6].map((k) => {
+// Objectives along the path, in order, each a little off the track: rocks to step over to, a boulder to zap from
+// the path, a viewpoint marker on the path itself. Kinds: see src/terrain/tasks.ts.
+const TASK_PLAN: { at: number; kind: TaskKind; offset: number }[] = [
+  { at: 2, kind: 'core', offset: 1.8 },
+  { at: 3, kind: 'laser', offset: 5 },
+  { at: 4, kind: 'panorama', offset: 0 },
+  { at: 6, kind: 'core', offset: -1.8 },
+];
+const STOPS: XZ[] = TASK_PLAN.map(({ at: k, offset }) => {
   const prev = ROUTE[Math.max(0, k - 1)], next = ROUTE[Math.min(ROUTE.length - 1, k + 1)];
   const dx = next.x - prev.x, dz = next.z - prev.z, len = Math.hypot(dx, dz);
-  return { x: ROUTE[k].x - (dz / len) * 1.8, z: ROUTE[k].z + (dx / len) * 1.8 };
+  return { x: ROUTE[k].x - (dz / len) * offset, z: ROUTE[k].z + (dx / len) * offset };
 });
-// ?demo=sample starts next to the first rock and begins sampling (for checking the animation and recording demos).
+// ?demo=core (or sample), ?demo=laser, ?demo=panorama: start at that objective and begin it (for checks and demo recordings).
 const DEMO = new URLSearchParams(window.location.search).get('demo');
 
 interface Sample {
@@ -61,9 +63,9 @@ interface Sample {
 
 type Interaction =
   | { kind: 'none' }
-  | { kind: 'prompt'; site: number }
-  | { kind: 'sampling'; site: number; pct: number; phase: string }
-  | { kind: 'stored' };
+  | { kind: 'prompt'; site: number; title: string; text: string }
+  | { kind: 'sampling'; site: number; pct: number; phase: string; title: string }
+  | { kind: 'stored'; title: string; text: string };
 
 function o2Bar(litres: number): SuitBar {
   const f = litres / O2_CAPACITY;
@@ -82,11 +84,12 @@ export function Preview() {
   const goHomeRef = useRef<() => void>(() => {});
   const swayRef = useRef<HTMLDivElement | null>(null);
   const fpsRef = useRef<HTMLSpanElement>(null);
+  const sheenRef = useRef<HTMLDivElement | null>(null);
   const [terrainNote, setTerrainNote] = useState('Loading terrain…');
   const [sample, setSample] = useState<Sample>({ o2: 280, tempC: -63, done: 3, cyclone: false });
   const [notice, setNotice] = useState<HudAlert | null>(null);
   const [interaction, setInteraction] = useState<Interaction>({ kind: 'none' });
-  const [stopsDone, setStopsDone] = useState(0);
+  const [currentTitle, setCurrentTitle] = useState('Rock core sample');
   const [headingHome, setHeadingHome] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(45 * 60); // sample mission clock, counts down live
 
@@ -108,6 +111,7 @@ export function Preview() {
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     const res = createAdaptiveResolution(renderer); // lowers resolution if frames run slow
     const lens = createVisorLens(renderer);
+    const interior = createHelmetInterior(80); // mic, valves, cables, drink tube, neck ring: 3D, inside the helmet
     const pr = res.pixelRatio;
     renderer.setSize(host.clientWidth, host.clientHeight);
     host.replaceChildren(renderer.domElement);
@@ -137,7 +141,20 @@ export function Preview() {
 
     // WASD, Shift to run
     const keys = new Set<string>();
-    const onKeyDown = (e: KeyboardEvent) => keys.add(e.code);
+    // Jumping in Mars gravity (3.71 m/s²): about 0.8 m high and well over a second in the air.
+    const JUMP_SPEED = 3.2, MARS_G = 3.71; // about 1.4 m high, 1.7 s in the air
+    let vy = 0, airborne = false;
+    const onKeyDown = (e: KeyboardEvent) => {
+      keys.add(e.code);
+      if (e.code === 'Space') {
+        e.preventDefault(); // don't scroll the page
+        if (!airborne && active < 0) {
+          vy = JUMP_SPEED;
+          airborne = true;
+          sway.look(0, 22); // the helmet lurches as you push off
+        }
+      }
+    };
     const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
     const onBlur = () => keys.clear();
     window.addEventListener('keydown', onKeyDown);
@@ -154,7 +171,7 @@ export function Preview() {
     let terrain: THREE.Mesh | null = null;
     let heights: Grid<Float32Array> | null = null;
     let route: RoutePath | null = null;
-    const sites: SampleSite[] = [];
+    const tasks: TaskSite[] = [];
     const groundAt = (x: number, z: number) => (heights ? sampleBilinear(heights, x, z) : 0);
 
     // Sampling state (game rules for the preview only)
@@ -164,13 +181,22 @@ export function Preview() {
     let near = -1;
     let lastPct = -1;
     const lookTarget = new THREE.Quaternion();
+    const kneelSpot = new THREE.Vector3(); // where you kneel beside the rock while sampling
+    let crouch = 0; // 0 standing, 1 kneeling
     const lookMatrix = new THREE.Matrix4();
 
     startSampleRef.current = () => {
-      if (active >= 0 || near < 0 || !sites[near].start()) return;
+      if (active >= 0 || near < 0 || !tasks[near].start()) return;
+      const task = tasks[near];
+      if (task.kneel) {
+        // Step up to the rock and kneel within arm's reach of it.
+        const r = task.anchor;
+        const dx = camera.position.x - r.x, dz = camera.position.z - r.z, d = Math.hypot(dx, dz) || 1;
+        kneelSpot.set(r.x + (dx / d) * 0.62, 0, r.z + (dz / d) * 0.62);
+      }
       active = near;
       lastPct = -1;
-      controls.enabled = false; // the suit holds your view on the rock while the corer works
+      controls.enabled = task.lookAt === null; // core and laser hold your view on the target; panorama lets you turn
     };
 
     // The way home: a new path from where you stand, back along the route you came, to the landing site.
@@ -243,17 +269,26 @@ export function Preview() {
       route = createRoutePath(ROUTE, groundAt);
       scene.add(route.group);
       STOPS.forEach((p, i) => {
-        const site = createSampleSite(new THREE.Vector3(p.x, groundAt(p.x, p.z), p.z), i + 1);
-        sites.push(site);
-        scene.add(site.group);
+        const g = new THREE.Vector3(p.x, groundAt(p.x, p.z), p.z);
+        const kind = TASK_PLAN[i].kind;
+        const task = kind === 'core' ? coreTask(createSampleSite(g, i + 1)) : kind === 'laser' ? createLaserTask(g, i + 1) : createPanoramaTask(g);
+        tasks.push(task);
+        scene.add(task.group);
       });
-      setTerrainNote(`Terrain: ${grid.cell} m grid, heights ${lo.toFixed(0)} to ${hi.toFixed(0)} m · sample route with ${STOPS.length} stops`);
-      if (DEMO === 'sample') {
-        const r = sites[0].rockTop;
-        camera.position.set(r.x + 1.3, groundAt(r.x + 1.3, r.z + 1.3) + EYE, r.z + 1.3);
-        camera.lookAt(r);
-        near = 0;
-        startSampleRef.current();
+      setCurrentTitle(tasks[0].title);
+      setTerrainNote(`Terrain: ${grid.cell} m grid, heights ${lo.toFixed(0)} to ${hi.toFixed(0)} m · sample route with ${STOPS.length} objectives`);
+      if (DEMO) {
+        // ?demo=core | laser | panorama (or sample = core): start right at that objective.
+        const kind = DEMO === 'sample' ? 'core' : DEMO;
+        const idx = tasks.findIndex((t) => t.kind === kind);
+        if (idx >= 0) {
+          const r = tasks[idx].anchor;
+          const back = kind === 'laser' ? 3.2 : kind === 'panorama' ? 0 : 0.9;
+          camera.position.set(r.x + back, groundAt(r.x + back, r.z + back) + EYE, r.z + back);
+          if (kind !== 'panorama') camera.lookAt(r);
+          near = idx;
+          startSampleRef.current();
+        }
       }
     })();
 
@@ -276,6 +311,7 @@ export function Preview() {
     t.add(u.uMajor, 'value', 5, 100, 5).name('major contour (m)');
     t.add(u.uMinorStrength, 'value', 0, 1, 0.05).name('minor line strength');
     t.add(u.uAmbient, 'value', 0, 1, 0.01).name('ambient light');
+    t.add(u.uRelief, 'value', 1, 6, 0.1).name('relief shading');
     t.add(u.uDetail, 'value', 0, 1, 0.05).name('close-up surface detail');
     const sun = { azimuth: 135, elevation: 30 };
     const setSun = () => {
@@ -290,12 +326,14 @@ export function Preview() {
     helmet.add(lens.uniforms.uK, 'value', 0, 0.5, 0.01).name('dome curvature');
     helmet.add(lens.uniforms.uCA, 'value', 0, 0.03, 0.001).name('edge colour fringing');
     const h = gui.addFolder('HUD sample values');
-    const hs = { o2: 280, tempC: -63, cyclone: false };
-    h.add(hs, 'o2', 0, O2_CAPACITY, 1).name('O₂ (L)').onChange((v: number) => setSample((p) => ({ ...p, o2: v })));
-    h.add(hs, 'tempC', -120, 30, 1).name('temp (°C)').onChange((v: number) => setSample((p) => ({ ...p, tempC: v })));
+    const hs = { o2: 280, tempOffset: 0, cyclone: false };
+    h.add(hs, 'o2', 0, O2_CAPACITY, 1).name('set O₂ (L)').onChange((v: number) => (o2Now = v));
+    h.add(hs, 'tempOffset', -30, 30, 1).name('temp offset (°C)');
     h.add(hs, 'cyclone').name('cyclone alert').onChange((v: boolean) => setSample((p) => ({ ...p, cyclone: v })));
 
     let last = performance.now();
+    let o2Now = 280, lastHud = 0, lastSheen = 0;
+    const lookDir = new THREE.Vector3();
     let fpsFrames = 0, fpsTime = 0;
     renderer.setAnimationLoop((ms: number) => {
       const rawDt = (ms - last) / 1000;
@@ -321,49 +359,94 @@ export function Preview() {
         controls.moveForward(fwd * step);
         controls.moveRight(side * step);
       }
-      camera.position.y = groundAt(camera.position.x, camera.position.z) + EYE;
+      // Kneel while sampling: move beside the rock and lower the eye from 1.7 m to about 1.15 m.
+      const ease = Math.min(1, dt * 3);
+      const kneeling = active >= 0 && tasks[active].kneel;
+      crouch += ((kneeling ? 1 : 0) - crouch) * ease;
+      if (kneeling) {
+        camera.position.x += (kneelSpot.x - camera.position.x) * ease;
+        camera.position.z += (kneelSpot.z - camera.position.z) * ease;
+      }
+      const groundY = groundAt(camera.position.x, camera.position.z) + EYE - crouch * (EYE - 1.15);
+      if (airborne) {
+        vy -= MARS_G * dt;
+        camera.position.y += vy * dt;
+        if (camera.position.y <= groundY) {
+          camera.position.y = groundY;
+          airborne = false;
+          vy = 0;
+          sway.look(0, -14); // the helmet dips on landing
+        }
+      } else {
+        camera.position.y = groundY;
+      }
 
-      // Sampling: hold the view on the rock, report progress, finish
+      // Doing an objective: hold the view on its target (if it has one), report progress, finish
       if (active >= 0) {
-        const site = sites[active];
-        lookMatrix.lookAt(camera.position, site.rockTop, camera.up);
-        lookTarget.setFromRotationMatrix(lookMatrix);
-        camera.quaternion.slerp(lookTarget, 1 - Math.exp(-dt * 4));
-        const pct = Math.round(site.progress * 100);
+        const task = tasks[active];
+        if (task.lookAt) {
+          lookMatrix.lookAt(camera.position, task.lookAt, camera.up);
+          lookTarget.setFromRotationMatrix(lookMatrix);
+          camera.quaternion.slerp(lookTarget, 1 - Math.exp(-dt * 4));
+        }
+        const pct = Math.round(task.progress * 100);
         if (pct !== lastPct) {
           lastPct = pct;
-          setInteraction({ kind: 'sampling', site: active, pct, phase: site.state });
+          setInteraction({ kind: 'sampling', site: active, pct, phase: task.phaseText, title: task.hudTitle });
         }
-        if (site.state === 'done') {
+        if (task.state === 'done') {
           active = -1;
           near = -1;
           controls.enabled = true;
-          setInteraction({ kind: 'stored' });
+          setInteraction({ kind: 'stored', title: task.doneText[0], text: task.doneText[1] });
           setSample((p) => ({ ...p, done: p.done + 1 }));
-          setStopsDone((n) => n + 1);
+          const next = tasks.find((x) => x.state === 'idle');
+          setCurrentTitle(next ? next.title : 'Head home');
           sampled++;
-          if (sampled === STOPS.length) goHome(); // all samples taken: the path turns for home
+          if (sampled === tasks.length) goHome(); // all objectives done: the path turns for home
           window.setTimeout(() => setInteraction((cur) => (cur.kind === 'stored' ? { kind: 'none' } : cur)), 2200);
         }
       } else {
-        // Close enough to a stop that hasn't been sampled?
+        // In range of an objective that hasn't been done?
         let found = -1;
-        sites.forEach((site, i) => {
-          const dx = site.rockTop.x - camera.position.x, dz = site.rockTop.z - camera.position.z;
-          if (site.state === 'idle' && dx * dx + dz * dz < REACH * REACH) found = i;
+        tasks.forEach((task, i) => {
+          if (task.state === 'idle' && task.inRange(camera)) found = i;
         });
         if (found !== near) {
           near = found;
-          setInteraction((cur) => (cur.kind === 'stored' ? cur : found >= 0 ? { kind: 'prompt', site: found } : { kind: 'none' }));
+          const task = tasks[found];
+          setInteraction((cur) =>
+            cur.kind === 'stored' ? cur : task ? { kind: 'prompt', site: found, title: task.hudTitle, text: task.prompt } : { kind: 'none' },
+          );
         }
       }
 
       sway.step(dt, running ? 2 : moving ? 1 : 0);
+
+      // Demo suit readings: O2 drains with effort and refills when you stop (whiteboard demo rule; not the real
+      // consumption model, which is Nanda's). Outside temperature follows the sun's height plus a slow drift.
+      const o2Rate = active >= 0 ? -0.6 : running ? -2.4 : moving || airborne ? -0.8 : 1.5; // litres per second
+      o2Now = Math.min(O2_CAPACITY, Math.max(0, o2Now + o2Rate * dt));
+      const tempNow = -95 + 55 * Math.max(0, Math.sin(THREE.MathUtils.degToRad(sun.elevation))) + 3 * Math.sin(time * 0.15) + hs.tempOffset;
+      if (time - lastHud > 0.2) {
+        lastHud = time;
+        setSample((p) => ({ ...p, o2: o2Now, tempC: tempNow }));
+      }
       sky.update(camera, time);
       route?.setProgress(camera.position.x, camera.position.z);
       route?.update(time);
-      for (const site of sites) site.update(dt, time, camera);
+      for (const task of tasks) task.update(dt, time, camera);
+      // Slide the glass reflection as the head turns (it stays put relative to the world, roughly).
+      if (sheenRef.current) {
+        camera.getWorldDirection(lookDir);
+        const shift = Math.round((Math.atan2(-lookDir.x, -lookDir.z) / Math.PI) * host.clientWidth * 0.6);
+        if (shift !== lastSheen) {
+          lastSheen = shift;
+          sheenRef.current.style.transform = `translate3d(${shift}px, 0, 0)`;
+        }
+      }
       lens.render(scene, camera);
+      interior.render(renderer, host.clientWidth, host.clientHeight, sway.offset);
     });
 
     const ro = new ResizeObserver(() => {
@@ -386,10 +469,11 @@ export function Preview() {
       gui.destroy();
       sky.dispose();
       route?.dispose();
-      for (const site of sites) site.dispose();
+      for (const task of tasks) task.dispose();
       terrain?.geometry.dispose();
       material.dispose();
       lens.dispose();
+      interior.dispose();
       renderer.dispose();
       host.replaceChildren();
     };
@@ -410,14 +494,14 @@ export function Preview() {
   const alert: HudAlert | null = sample.cyclone
     ? cycloneAlert
     : interaction.kind === 'prompt'
-      ? { level: 'info', title: 'ROCK SAMPLE', message: 'Take a core sample', acceptKey: 'F', onAccept: () => startSampleRef.current() }
+      ? { level: 'info', title: interaction.title, message: interaction.text, acceptKey: 'F', onAccept: () => startSampleRef.current() }
       : interaction.kind === 'sampling'
-        ? { level: 'info', title: 'CORING', message: `${PHASE_TEXT[interaction.phase] ?? 'Working'}… ${interaction.pct}%` }
+        ? { level: 'info', title: interaction.title, message: `${interaction.phase}… ${interaction.pct}%` }
         : interaction.kind === 'stored'
-          ? { level: 'info', title: 'SAMPLE STORED', message: 'Tube sealed and stowed' }
+          ? { level: 'info', title: interaction.title, message: interaction.text }
           : notice;
 
-  const current = headingHome || stopsDone >= STOPS.length ? 'Head home' : `Rock sample (${stopsDone + 1} of ${STOPS.length})`;
+  const current = headingHome ? 'Head home' : currentTitle;
 
   return (
     <div ref={rootRef} className="preview">
@@ -434,9 +518,10 @@ export function Preview() {
         o2={o2Bar(sample.o2)}
         temperature={tempBar(sample.tempC)}
         swayTargetRef={swayRef}
+        sheenRef={sheenRef}
       />
       <div className="preview-badge">
-        PREVIEW · sample HUD values · click to look, WASD to walk, Shift to run, F to sample at a stop, E to accept, Esc to release
+        PREVIEW · click to look, WASD to walk, Shift to run, Space to jump, F to sample at a stop, E to accept, Esc to release
         <br />
         {terrainNote}
         <br />

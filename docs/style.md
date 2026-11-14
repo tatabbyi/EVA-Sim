@@ -6,8 +6,8 @@ Preview everything at `/#preview`: click to look, WASD to walk, Shift to run, E 
 
 ## The look
 
-- **World:** the real Jezero terrain under a starry night sky. Ground colour looks are switchable (Look panel > Terrain > ground colours, `terrainPresets` in `palette.ts`): **Realistic Mars** (default: rust, butterscotch, tan), Pastel, Mars ochre, Topographic map, Sandstone, Thermal. Each repeats with height so even the flat crater floor shows variation, with contour lines on top (thin every 1 m, bold every 5 m) and close-up surface detail (bumps and grit) that fades with distance. Steep ground (20° to 25°) gets a muted red tint.
-- **Helmet:** you're inside a realistic NASA-style bubble helmet: a wide dome opening, the world seen through it with a gentle fisheye curve and slight colour fringing at the edges (`src/terrain/visorLens.ts`, desktop only), a thick clear rim catching light, and suit hardware at the chin (microphone, white valve caps, connector, cables). Cream/beige suit fabric with a lit woven texture and soft folds (`--c-helmet`, `#e6dcc8`) that's out of focus because it's centimetres from the eye, a solid dark rubber seal where the glass meets it (nothing shows through the joint), a cream neck ring at the bottom, a faint gold sun-visor tint at the top, dust, smudges, blurry reflections and breath fog on the glass.
+- **World:** the real Jezero terrain under a starry night sky. Ground colour looks are switchable (Look panel > Terrain > ground colours, `terrainPresets` in `palette.ts`): **The Martian** (default, after the film's palette), Realistic Mars, Pastel, Mars ochre, Topographic map, Sandstone, Thermal. Each repeats with height so even the flat crater floor shows variation, with contour lines on top (thin every 1 m, bold every 5 m) and close-up surface detail (bumps and grit) that fades with distance. Relief shading exaggerates slopes in the lighting (not the geometry), so the topography reads clearly; adjustable. Steep ground (20° to 25°) gets a muted red tint.
+- **Helmet:** you're inside a realistic NASA-style bubble helmet: a wide dome opening, the world seen through it with a gentle fisheye curve and slight colour fringing at the edges (`src/terrain/visorLens.ts`, desktop only), a thick clear rim catching light, and suit hardware at the chin as real 3D objects inside the helmet (`src/terrain/helmetInterior.ts`): foam microphone on a boom, white valve caps, connector, green and black cables, yellow drink tube, foam pad, cream neck ring. Cream/beige suit fabric (`--c-helmet`, `#e6dcc8`): lit woven base with soft folds, quilted padding above, twill side panels, double stitched seams round the visor and an EV1 crew patch that's out of focus because it's centimetres from the eye, a solid dark rubber seal where the glass meets it (nothing shows through the joint), a cream neck ring at the bottom, a faint gold sun-visor tint at the top, dust, smudges, blurry reflections and breath fog on the glass.
 - **UI:** translucent glass panels (blurred, thin bright edge), one colour per suit reading. Nothing on screen that isn't needed.
 
 ## Colours
@@ -49,7 +49,7 @@ Everything is drawn on the curved visor glass: no boxes, light glow, and text an
 |---|---|---|
 | Top-left | Objectives "3/14", mission time left ("TIME 42:10", yellow under 5 min, red under 1 min) and the current objective, as text bending along the glass edge | Always |
 | Top, under the rim | Alert, e.g. "⚠ CYCLONE / Switch waypoint to home? [E]", kept out of the line of sight | Only during a danger. [E] accepts: the astronaut decides |
-| Right side | Two long translucent bars, O₂ (blue) and temperature (red), parallel to the right edge of the glass | Always |
+| Right side | Two glass-tube bars, O₂ (blue) and temperature (red), parallel to the right edge: segmented glowing gradient fill, tick marks, a shimmer flowing up the fill and a glowing level marker. Driven by `fraction`, so they rise and fall with the data | Always |
 
 The visor edge: rounded, with a solid rubber seal (dark, slight sheen on the inner lip) between the glass and the cream helmet, and the view softens towards the edge like thick curved glass.
 
@@ -66,3 +66,8 @@ The visor edge: rounded, with a solid rubber seal (dark, slight sheen on the inn
 - Respect `prefers-reduced-motion`: pulsing and blinking switch off.
 - No NASA logos, flags or mission identifiers. Any AI-generated image gets a visible watermark.
 - Outlines and contours stay in the terrain shader (no post-processing; it breaks in VR).
+
+## World objects
+
+- **Path:** solid 3D yellow chevrons every 6 m, hovering about 35 cm up, bobbing and gliding forward, each with a ground shadow. Arrows you've passed disappear; on the way home a new path is built from where you stand (`src/terrain/routePath.ts`).
+- **Rock samples:** you kneel beside the rock; your gloved hands (cream EVA gloves, grey grip pads, metal wrist rings) hold the corer while it drills (`src/terrain/sampleSite.ts`).

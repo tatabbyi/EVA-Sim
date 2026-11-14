@@ -24,21 +24,38 @@
   overflow: visible;
 }
 
-/* Breath fogging the bottom of the visor, coming and going */
+/* Effects on the inside of the glass, clipped to the visor shape */
+.hud-glass-fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+/* A soft reflection that slides across the glass as you turn your head */
+.hud-sheen {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -100%;
+  width: 300%;
+  background: linear-gradient(112deg, transparent 42%, rgba(255, 255, 255, 0.035) 47%, rgba(255, 255, 255, 0.085) 49.5%,
+    rgba(255, 255, 255, 0.035) 52%, transparent 57%);
+  will-change: transform;
+}
+/* Breath: a small patch of fog low on the visor, coming and going */
 .hud-breath {
   position: absolute;
-  left: 25%;
-  right: 25%;
-  bottom: 4%;
-  height: 26%;
-  background: radial-gradient(ellipse 50% 60% at 50% 100%, rgba(225, 235, 245, 0.09), rgba(225, 235, 245, 0) 70%);
-  filter: blur(8px);
+  left: 41%;
+  right: 41%;
+  bottom: 9%;
+  height: 11%;
+  background: radial-gradient(ellipse 50% 50% at 50% 70%, rgba(230, 238, 245, 0.18), rgba(230, 238, 245, 0) 70%);
+  filter: blur(6px);
   animation: hud-breathe 4.2s ease-in-out infinite;
 }
 @keyframes hud-breathe {
-  0%, 100% { opacity: 0.1; }
-  40% { opacity: 0.6; }
-  60% { opacity: 0.45; }
+  0%, 100% { opacity: 0; transform: scale(0.85); }
+  35% { opacity: 0.8; transform: scale(1); }
+  60% { opacity: 0.35; transform: scale(1.05); }
 }
 
 /* ---------- Light projected on the glass ---------- */
@@ -98,27 +115,49 @@
   50% { filter: drop-shadow(0 0 9px rgba(255, 59, 48, 0.95)); }
 }
 
-/* O2 and temperature bars */
-.hud-bar-edge {
+/* O2 and temperature bars: glass tubes with a segmented, glowing fill */
+.hud-bar-rim {
   fill: none;
-  stroke: color-mix(in srgb, var(--bar-colour) 50%, transparent);
-  stroke-width: 1.15em;
+  stroke: color-mix(in srgb, var(--bar-colour) 70%, #ffffff);
+  stroke-width: 1.42em;
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+.hud-bar-glass {
+  fill: none;
+  stroke: rgba(6, 12, 22, 0.5);
+  stroke-width: 1.3em;
   stroke-linecap: round;
 }
-.hud-bar-track {
+.hud-bar-shine {
   fill: none;
-  stroke: rgba(4, 8, 14, 0.75);
-  stroke-width: 1em;
+  stroke: rgba(255, 255, 255, 0.3);
+  stroke-width: 0.12em;
   stroke-linecap: round;
 }
 .hud-bar-fill {
   fill: none;
-  stroke: var(--bar-colour);
-  stroke-width: 0.7em;
+  stroke-width: 0.8em;
+  filter: drop-shadow(0 0 5px var(--bar-colour));
+}
+.hud-bar-flow {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 0.8em;
   stroke-linecap: round;
-  opacity: 0.85;
-  filter: drop-shadow(0 0 6px var(--bar-colour));
-  transition: stroke-dasharray 0.3s ease;
+  opacity: 0.45;
+}
+.hud-bar-cap {
+  fill: #ffffff;
+  opacity: 0.95;
+  filter: drop-shadow(0 0 4px var(--bar-colour)) drop-shadow(0 0 9px var(--bar-colour));
+}
+.hud-bar-tick {
+  stroke: color-mix(in srgb, var(--bar-colour) 60%, transparent);
+  stroke-width: 1.2px;
+}
+.hud-bar-tick--major {
+  stroke-width: 2.2px;
 }
 .hud-bar-value {
   font-weight: 600;
@@ -140,5 +179,5 @@
 @media (prefers-reduced-motion: reduce) {
   .hud-alert--danger .hud-alert-title,
   .hud-bar--danger .hud-bar-fill,
-  .hud-breath { animation: none; }
+  .hud-breath { animation: none; opacity: 0.3; }
 }

@@ -1,7 +1,7 @@
 // Written with AI assistance (Claude).
 // Owner: Rachel. A rock-sample stop: an objective beacon, a rock, and the animated coring sequence
 // (modelled on Perseverance's sampling: abrade, core, seal and stow; research/10).
-//   lowering (1.0 s): the corer comes down onto the rock
+//   lowering (1.0 s): held in both gloved hands, the corer comes down onto the rock (you kneel beside it)
 //   drilling (3.0 s): bit spins, tool vibrates, rock dust sprays and falls in Mars gravity, a fresh patch appears
 //   raising  (0.8 s): the corer lifts out with the rock core inside
 //   stowing  (0.9 s): the corer comes back towards the suit and is put away
@@ -9,7 +9,10 @@
 
 import * as THREE from 'three';
 import { palette } from '../ui/palette';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { createNoiseTexture } from './noiseTexture';
 import { createWaypointBeacon } from './beacon';
+import { createSuitArm } from './suitArm';
 
 export type SampleState = 'idle' | 'lowering' | 'drilling' | 'raising' | 'stowing' | 'done';
 
@@ -38,8 +41,12 @@ export interface SampleSite {
 
 const ease = (x: number) => x * x * (3 - 2 * x);
 
-function rockGeometry(seed: number): THREE.BufferGeometry {
-  const geo = new THREE.IcosahedronGeometry(0.34, 3);
+export function rockGeometry(seed: number): THREE.BufferGeometry {
+  // Many small triangles, welded so the shading is smooth; layered bumps make it read as real stone up close.
+  const ico = new THREE.IcosahedronGeometry(0.34, 6);
+  ico.deleteAttribute('normal');
+  ico.deleteAttribute('uv');
+  const geo = mergeVertices(ico);
   const pos = geo.attributes.position as THREE.BufferAttribute;
   const v = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
@@ -48,7 +55,9 @@ function rockGeometry(seed: number): THREE.BufferGeometry {
       Math.sin(v.x * 9 + seed) * 0.5 +
       Math.sin(v.y * 13 + seed * 2) * 0.3 +
       Math.sin(v.z * 11 - seed) * 0.4 +
-      Math.sin((v.x + v.z) * 23 + seed) * 0.15;
+      Math.sin((v.x + v.z) * 23 + seed) * 0.15 +
+      Math.sin(v.x * 61 + v.y * 47 + seed * 3) * 0.06 +
+      Math.sin(v.z * 83 - v.y * 71 + seed) * 0.04;
     v.multiplyScalar(1 + bump * 0.12);
     pos.setXYZ(i, v.x * 1.15, v.y * 0.62, v.z * 0.95); // a squat boulder
   }
@@ -73,7 +82,8 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
 
   // Rock
   const rockGeo = keep(rockGeometry(seed));
-  const rockMat = keep(new THREE.MeshStandardMaterial({ color: '#6e5a4a', roughness: 0.95, flatShading: true }));
+  const grain = keep(createNoiseTexture(256, seed * 17 + 3, 4));
+  const rockMat = keep(new THREE.MeshStandardMaterial({ color: '#6e5a4a', roughness: 0.96, bumpMap: grain, bumpScale: 0.006 }));
   const rock = new THREE.Mesh(rockGeo, rockMat);
   rock.position.copy(ground).add(new THREE.Vector3(0, 0.1, 0));
   rock.rotation.y = seed * 1.7;
@@ -112,6 +122,31 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
   tool.add(housing, grip, statusLight, bit, core);
   tool.visible = false;
   group.add(tool);
+
+  // Astronaut hands: realistic EVA gloves (suitArm.ts) gripping the corer, forearms reaching back to your elbows.
+  const rightArm = createSuitArm(1), leftArm = createSuitArm(-1);
+  group.add(rightArm.root, leftArm.root);
+  rightArm.root.visible = leftArm.root.visible = false;
+  disposables.push(rightArm, leftArm);
+  // Where each hand holds the tool, and the point its palm faces (tool-local): right hand round the pistol grip,
+  // left hand steadying the side of the housing.
+  const HOLDS = [
+    { grip: new THREE.Vector3(0.128, 0.36, 0), palm: new THREE.Vector3(0.095, 0.36, 0) },
+    { grip: new THREE.Vector3(-0.1, 0.34, 0.01), palm: new THREE.Vector3(0, 0.34, 0) },
+  ];
+  // Elbows, in camera space: low and to the sides, so only the forearms reach into view.
+  const ELBOWS = [new THREE.Vector3(0.27, -0.44, -0.3), new THREE.Vector3(-0.27, -0.44, -0.3)];
+  const elbow = new THREE.Vector3(), gripAt = new THREE.Vector3(), palmAt = new THREE.Vector3();
+  const placeArms = (camera: THREE.Camera) => {
+    camera.updateMatrixWorld();
+    tool.updateMatrixWorld(true);
+    [rightArm, leftArm].forEach((arm, i) => {
+      tool.localToWorld(gripAt.copy(HOLDS[i].grip));
+      tool.localToWorld(palmAt.copy(HOLDS[i].palm));
+      arm.pose(gripAt, palmAt, elbow.copy(ELBOWS[i]).applyMatrix4(camera.matrixWorld));
+      arm.root.visible = true;
+    });
+  };
 
   // Rock dust
   const dustPos = new Float32Array(DUST * 3).fill(-1e4);
@@ -157,7 +192,7 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
   let state: SampleState = 'idle';
   let elapsed = 0;
   let progress = 0;
-  const raised = rockTop.clone().add(new THREE.Vector3(0, 0.5, 0));
+  const raised = rockTop.clone().add(new THREE.Vector3(0, 0.2, 0));
   const stowTarget = new THREE.Vector3();
   const offsetFromEye = new THREE.Vector3(0.18, -0.6, -0.45); // just below and in front of the visor
 
@@ -197,7 +232,7 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
         tool.scale.setScalar(1);
 
         if (phase === 'lowering') {
-          tool.position.copy(rockTop).add(new THREE.Vector3(0, 0.9 * (1 - ease(local)), 0));
+          tool.position.copy(rockTop).add(new THREE.Vector3(0, 0.15 * (1 - ease(local)), 0)); // held low in front of you, lowered onto the rock
           lightMat.color.set(palette.warning);
         } else if (phase === 'drilling') {
           tool.position.copy(rockTop);
@@ -210,13 +245,12 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
           emitDust(dt);
         } else if (phase === 'raising') {
           core.visible = true;
-          tool.position.copy(rockTop).add(new THREE.Vector3(0, 0.5 * ease(local) - 0.05 * (1 - local), 0));
+          tool.position.copy(rockTop).add(new THREE.Vector3(0, 0.2 * ease(local) - 0.05 * (1 - local), 0));
           bit.rotation.y += dt * 12 * (1 - local);
           lightMat.color.set(palette.ok);
         } else if (phase === 'stowing') {
           stowTarget.copy(offsetFromEye).applyMatrix4(camera.matrixWorld);
           tool.position.lerpVectors(raised, stowTarget, ease(local));
-          tool.scale.setScalar(1 - 0.6 * local);
         } else {
           // done: sample sealed and stowed
           tool.visible = false;
@@ -224,6 +258,8 @@ export function createSampleSite(ground: THREE.Vector3, seed = 1): SampleSite {
           beacon.group.scale.y = 0.2;
         }
       }
+      if (tool.visible) placeArms(camera);
+      else rightArm.root.visible = leftArm.root.visible = false;
       updateDust(dt);
     },
     dispose() {

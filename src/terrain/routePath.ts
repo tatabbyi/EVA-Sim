@@ -84,6 +84,22 @@ export function createRoutePath(
   });
 
   const count = Math.floor(length / spacing) + 1;
+
+  // Per-arrow fade (0 to 1): arrows fade out as you reach them instead of vanishing.
+  const fade = new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1);
+  arrowGeo.setAttribute('aFade', fade);
+  shadowGeo.setAttribute('aFade', fade);
+  const fadeable = (mat: THREE.Material) => {
+    mat.transparent = true;
+    mat.onBeforeCompile = (shader) => {
+      shader.vertexShader = 'attribute float aFade;\nvarying float vFade;\n' +
+        shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFade = aFade;');
+      shader.fragmentShader = 'varying float vFade;\n' +
+        shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= vFade;');
+    };
+  };
+  fadeable(arrowMat);
+  fadeable(shadowMat);
   const arrows = new THREE.InstancedMesh(arrowGeo, arrowMat, count);
   const shadows = new THREE.InstancedMesh(shadowGeo, shadowMat, count);
   arrows.frustumCulled = shadows.frustumCulled = false;
@@ -122,7 +138,10 @@ export function createRoutePath(
       const glide = (t * speed) % spacing;
       for (let i = 0; i < count; i++) {
         const s = i * spacing + glide;
-        if (s > length || s < walked + 1.5) {
+        // Fades from 6 m before you reach it down to nothing as you pass over it.
+        const near = Math.min(1, Math.max(0, (s - walked) / 6));
+        const f = near * near * (3 - 2 * near);
+        if (s > length || f < 0.01) {
           arrows.setMatrixAt(i, hidden);
           shadows.setMatrixAt(i, hidden);
           continue;
@@ -133,13 +152,15 @@ export function createRoutePath(
         // Grow in from nothing near the far end of view, so they don't pop.
         const k = dist > 260 ? 0 : 1 - Math.max(0, (dist - 200) / 60);
         q.setFromAxisAngle(up, yaw);
-        scale.setScalar(k);
+        scale.setScalar(k * (0.75 + 0.25 * f));
+        fade.setX(i, f);
         pos.y = ground + hover + Math.sin(t * 2 + i * 0.9) * 0.05;
         arrows.setMatrixAt(i, m.compose(pos, q, scale));
         pos.y = ground + 0.03;
         shadows.setMatrixAt(i, m.compose(pos, q, scale));
       }
       arrows.instanceMatrix.needsUpdate = true;
+      fade.needsUpdate = true;
       shadows.instanceMatrix.needsUpdate = true;
     },
     dispose() {
