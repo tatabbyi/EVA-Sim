@@ -2,12 +2,13 @@
 import * as THREE from 'three';
 import { createTerrainMaterial, setHeightRange } from '../terrain/material';
 import { createStarrySky } from '../terrain/sky';
-import { createRoutePath, type RoutePath } from '../terrain/routePath';
+import { createRoutePath } from '../terrain/routePath';
 import { createSampleSite } from '../terrain/sampleSite';
 import { DEMO_MOVEMENT, type Engine } from '../core/engine';
 import { createDemoInput } from './input';
 import type { HeightProvider } from './world';
-export function mountScene(host: HTMLDivElement, engine: Engine, heights: HeightProvider) {
+import { createRouteVisual, validateSceneRoute } from './routes';
+export function mountScene(host: HTMLDivElement, engine: Engine, heights: HeightProvider, reportRoute: (reason: string | null) => void = () => {}) {
   const disposers: Array<() => void> = [];
   let cleaned = false;
   const dispose = () => { if (cleaned) return; cleaned = true; for (const fn of disposers.reverse()) fn(); };
@@ -19,7 +20,8 @@ export function mountScene(host: HTMLDivElement, engine: Engine, heights: Height
   scene.background = new THREE.Color('#060b12');
   scene.add(new THREE.HemisphereLight('#bcd2ff', '#3a2a20', 1), new THREE.DirectionalLight('#fff3e2', 2));
   const sky = createStarrySky(); disposers.push(() => sky.dispose()); sky.setPixelRatio(renderer.getPixelRatio()); scene.add(sky.group);
-  const groundAt = (x: number, z: number) => { const h = heights.heightAt(x,z); if (h === null) throw new Error('Terrain unavailable at visual position'); return h; };
+  const groundAt = (x: number, z: number) => { const h = heights.heightAt(x,z); if (h === null || !Number.isFinite(h)) throw new Error('Terrain unavailable at visual position'); return h; };
+  if (!heights.coversArea(heights.bounds)) throw new Error('Terrain unavailable: internal no-data (partial meshes deferred)');
   const b = heights.bounds, segments = 512; // 8 m display mesh over original 4 m sampling grid; temporary adapter
   const geometry = new THREE.PlaneGeometry(b.maxX-b.minX,b.maxZ-b.minZ,segments,segments);
   disposers.push(() => geometry.dispose());
@@ -53,15 +55,15 @@ export function mountScene(host: HTMLDivElement, engine: Engine, heights: Height
   for (let edge=0; edge<4; edge++) for (let i=0;i<128;i++) { const t=i/128,x=border[edge][0]*(1-t)+border[edge+1][0]*t,z=border[edge][1]*(1-t)+border[edge+1][1]*t; points.push(new THREE.Vector3(x,groundAt(x,z)+0.5,z)); }
   points.push(points[0].clone());
   const lineGeo = new THREE.BufferGeometry().setFromPoints(points), lineMat = new THREE.LineBasicMaterial({color:'#ffb84d'}); resources.push(lineGeo,lineMat); scene.add(new THREE.Line(lineGeo,lineMat));
-  let route: RoutePath | null = null, routeKey = '';
-  disposers.push(() => route?.dispose());
-  const updateRoute = () => {
-    const next = engine.getSnapshot().mission.route, key = JSON.stringify(next);
-    if (key === routeKey) return;
-    route?.group.removeFromParent(); route?.dispose(); route = null; routeKey = key;
-    if (next.points.length >= 2) { route = createRoutePath(next.points.map(p => ({...p})),groundAt); scene.add(route.group); }
-  };
-  updateRoute();
+  const routeVisual = createRouteVisual(
+    next => { const s=engine.getSnapshot(); validateSceneRoute(next,s.region,s.mission,heights); },
+    next => {
+      const visual=createRoutePath(next.points.map(p => ({...p})),groundAt);
+      scene.add(visual.group); return visual;
+    },
+    visual => visual.group.removeFromParent(), reportRoute,
+  );
+  disposers.push(() => routeVisual.dispose());
   const home = snapshot.player.position;
   camera.position.set(home.x,groundAt(home.x,home.z)+DEMO_MOVEMENT.eyeHeightMetres,home.z);
   if (core) camera.lookAt(core.position.x,groundAt(core.position.x,core.position.z)+1,core.position.z);
@@ -79,7 +81,7 @@ export function mountScene(host: HTMLDivElement, engine: Engine, heights: Height
     if (disposed) return;
     const s = engine.getSnapshot(), p=s.player.position;
     camera.position.set(p.x,groundAt(p.x,p.z)+DEMO_MOVEMENT.eyeHeightMetres,p.z);
-    updateRoute(); sky.update(camera,s.simTimeSeconds); route?.setProgress(p.x,p.z); route?.update(s.simTimeSeconds);
+    routeVisual.tick(s.mission.route,p.x,p.z,s.simTimeSeconds); sky.update(camera,s.simTimeSeconds);
     sample?.update(s.paused ? 0 : Math.min(Math.max(0,s.simTimeSeconds-previousSimTime),0.25),s.simTimeSeconds,camera);
     previousSimTime=s.simTimeSeconds; renderer.render(scene,camera); host.dataset.sceneReady='true'; frame=requestAnimationFrame(render);
   };

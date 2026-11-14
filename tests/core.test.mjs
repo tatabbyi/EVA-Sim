@@ -47,6 +47,14 @@ test('world loader reads metadata-selected shipped grid and reports missing data
  try {
   globalThis.fetch=async url=>url.endsWith('meta.json')?new Response(meta):new Response(data);
   const world=await loadDemoWorld(undefined,'/');assert.equal(world.heights.heightAt(0,0),0);assert.equal(world.mission.tasks.length,2);assert.ok(world.region.visibleBounds.maxX>world.region.playableBounds.maxX);
+  assert.match(world.heights.terrainRevision,/^sha256:[a-f0-9]{64}$/);assert.equal(world.region.terrainRevision,world.heights.terrainRevision);
+  assert.equal((await loadDemoWorld(undefined,'/')).heights.terrainRevision,world.heights.terrainRevision);
+  const changed=new Uint8Array(data);changed[0]^=1;
+  globalThis.fetch=async url=>url.endsWith('meta.json')?new Response(meta):new Response(changed);
+  assert.notEqual((await loadDemoWorld(undefined,'/')).heights.terrainRevision,world.heights.terrainRevision);
+  const transformed=JSON.parse(meta);transformed.origin.X+=1;
+  globalThis.fetch=async url=>url.endsWith('meta.json')?new Response(JSON.stringify(transformed)):new Response(data);
+  assert.notEqual((await loadDemoWorld(undefined,'/')).heights.terrainRevision,world.heights.terrainRevision);
   globalThis.fetch=async url=>url.endsWith('meta.json')?new Response(meta):new Response('missing',{status:404});
   await assert.rejects(loadDemoWorld(undefined,'/'),/Missing 4m terrain: HTTP 404/);
   globalThis.fetch=async()=>new Response('{}');await assert.rejects(loadDemoWorld(undefined,'/'),/Invalid demo metadata/);

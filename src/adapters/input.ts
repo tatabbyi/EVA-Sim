@@ -4,7 +4,13 @@ import type { PerspectiveCamera } from 'three';
 import type { Engine } from '../core/engine';
 export function createDemoInput(camera: PerspectiveCamera, canvas: HTMLCanvasElement, engine: Engine) {
   const controls = new PointerLockControls(camera, canvas), keys = new Set<string>();
-  const clear = () => { keys.clear(); engine.dispatch({ type: 'input', direction: { x: 0, z: 0 }, run: false }); };
+  let last = { x: 0, z: 0, run: false };
+  const send = (x: number, z: number, run: boolean) => {
+    if (x === last.x && z === last.z && run === last.run) return;
+    last = { x, z, run }; engine.dispatch({ type: 'input', direction: { x, z }, run });
+  };
+  const clear = () => { keys.clear(); send(0, 0, false); };
+  const offReset = engine.onEvent(event => { if (event.type === 'reset') clear(); });
   const down = (event: KeyboardEvent) => { if (controls.isLocked && ['KeyW','KeyA','KeyS','KeyD','ShiftLeft','ShiftRight'].includes(event.code)) { keys.add(event.code); event.preventDefault(); } };
   const up = (event: KeyboardEvent) => keys.delete(event.code);
   const click = () => { if (!engine.getSnapshot().paused) controls.lock(); };
@@ -18,10 +24,10 @@ export function createDemoInput(camera: PerspectiveCamera, canvas: HTMLCanvasEle
       if (!controls.isLocked || engine.getSnapshot().paused) { clear(); return; }
       const forward = Number(keys.has('KeyW'))-Number(keys.has('KeyS')), right = Number(keys.has('KeyD'))-Number(keys.has('KeyA'));
       const yaw = camera.rotation.y;
-      engine.dispatch({ type: 'input', direction: { x: right*Math.cos(yaw)-forward*Math.sin(yaw), z: -right*Math.sin(yaw)-forward*Math.cos(yaw) }, run: keys.has('ShiftLeft') || keys.has('ShiftRight') });
+      send(right*Math.cos(yaw)-forward*Math.sin(yaw), -right*Math.sin(yaw)-forward*Math.cos(yaw), keys.has('ShiftLeft') || keys.has('ShiftRight'));
     },
     dispose() {
-      clear(); controls.removeEventListener('unlock', clear); controls.dispose();
+      offReset(); clear(); controls.removeEventListener('unlock', clear); controls.dispose();
       if (document.pointerLockElement === canvas) document.exitPointerLock();
       canvas.removeEventListener('click', click); window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange', visibility);
     },

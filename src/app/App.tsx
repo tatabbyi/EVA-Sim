@@ -11,16 +11,17 @@ import './App.css';
 export function App() {
   const host = useRef<HTMLDivElement>(null), engineRef = useRef<Engine | null>(null);
   const [snapshot,setSnapshot] = useState<DeepReadonly<EngineSnapshot> | null>(null);
+  const [routeError,setRouteError] = useState<string | null>(null);
   const [error,setError] = useState<string | null>(null), [attempt,setAttempt] = useState(0);
   useEffect(() => {
     const abort = new AbortController(); let cleanup = () => {};
-    setSnapshot(null); setError(null);
+    setSnapshot(null); setError(null); setRouteError(null);
     loadDemoWorld(abort.signal).then(world => {
       if (abort.signal.aborted || !host.current) return;
       const engine = createEngine(world.region,world.mission,p => world.heights.heightAt(p.x,p.z) !== null);
       engineRef.current=engine;
       let scene: ReturnType<typeof mountScene>;
-      try { scene=mountScene(host.current,engine,world.heights); }
+      try { scene=mountScene(host.current,engine,world.heights,setRouteError); }
       catch (failure) { engine.dispose(); engineRef.current=null; throw failure; }
       const clock = createFixedClock(engine);
       setSnapshot(engine.getSnapshot());
@@ -33,15 +34,16 @@ export function App() {
   }, [attempt]);
   const dispatch = (type: 'pause' | 'resume' | 'reset') => { engineRef.current?.dispatch({ type }); if (engineRef.current) setSnapshot(engineRef.current.getSnapshot()); };
   const p = snapshot?.player.position;
-  const nearest = snapshot && [...snapshot.mission.tasks].sort((a,b) => Math.hypot(a.position.x-snapshot.player.position.x,a.position.z-snapshot.player.position.z)-Math.hypot(b.position.x-snapshot.player.position.x,b.position.z-snapshot.player.position.z))[0];
+  const nearest = snapshot && snapshot.mission.tasks.filter(t => t.status === 'pending' || t.status === 'active').sort((a,b) => Math.hypot(a.position.x-snapshot.player.position.x,a.position.z-snapshot.player.position.z)-Math.hypot(b.position.x-snapshot.player.position.x,b.position.z-snapshot.player.position.z))[0];
   const near = nearest && p && Math.hypot(nearest.position.x-p.x,nearest.position.z-p.z) <= 5;
   return <main className="raw-app">
     <div ref={host} className="raw-scene" aria-label="Jezero 4m terrain scene" />
     {snapshot && <HelmetHud {...toHelmetHud(snapshot)} />}
     <section className="raw-controls" aria-label="Demo controls">
-      <strong>RAW v0.1 · {snapshot ? routeLabel(snapshot.mission.route.source) : 'DEMO route'}</strong>
+      <strong>RAW v0.1 · {routeError ? 'Route unavailable' : snapshot ? routeLabel(snapshot.mission.route.source) : 'DEMO route'}</strong>
       <div>Click terrain to look · WASD · Shift run · Esc release</div>
-      <div>DEMO movement · O₂ / temperature UNKNOWN</div>
+      <div>DEMO movement · O₂ / temperature UNKNOWN · NOT SIMULATED</div>
+      {routeError && <p role="status">{routeError}</p>}
       <button disabled={!snapshot} onClick={() => dispatch(snapshot?.paused ? 'resume' : 'pause')}>{snapshot?.paused ? 'Resume' : 'Pause'}</button>
       <button disabled={!snapshot} onClick={() => dispatch('reset')}>Reset</button>
       <a href="#preview">Visual preview</a>

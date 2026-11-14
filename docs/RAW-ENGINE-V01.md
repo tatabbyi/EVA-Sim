@@ -71,28 +71,19 @@ no-data sentinel values. Production terrain tiles/LOD remain Victor's work;
 
 ```ts
 import { createEngine } from '../core/engine';
-import type { HeightProvider } from '../adapters/world';
-// Region and Mission must use the provider's local metre frame.
-const provider: HeightProvider = { bounds: region.visibleBounds,
-  heightAt: (x, z) => victorNullableHeightAt(x, z) };
-const engine = createEngine(region, mission,
-  p => provider.heightAt(p.x, p.z) !== null);
+import { loadDemoWorld } from '../adapters/world';
+const world = await loadDemoWorld();
+const engine = createEngine(world.region, world.mission,
+  p => world.heights.heightAt(p.x, p.z) !== null);
 ```
 
-Route providers send local waypoints with explicit provenance, not lon/lat:
-
-```ts
-engine.dispatch({ type: 'route', route: { source: 'ml', points: [
-  { x: 12, z: 12 }, { x: 36, z: -20 }, { x: -12, z: -52 },
-] } });
-```
-
+Route providers send local waypoints through `applyRouteCandidate`, with explicit
+region/frame/revision, planner provenance and objective order. See the Review Fix
+01 contract and before/after example below for the complete exported API.
 Routes reject nonfinite/out-of-playable-bounds points, repeated adjacent points,
-unsupported sources and invalid lengths. The initial route is explicitly `DEMO`.
-Players can ignore it. This adapter implements no ML or route cost model.
-Rachel's route visual uses Catmull-Rom interpolation; future providers should keep
-routes clear of no-data and edge areas, and validate continuous paths as well as
-waypoints before integrating new regions. The current fixture is safely inset.
+unsupported sources, invalid lengths and unsafe rendered geometry. The initial
+route is explicitly `DEMO`; players can ignore it. This adapter implements no ML
+or route cost model.
 
 Rachel's HUD remains untouched:
 
@@ -210,3 +201,103 @@ verification report):
 `git diff --name-only ac2e18819e3462a89798fb88a75e22cfdd28733e -- src/dev src/ui
 src/terrain src/shared src/walk pipeline public` returned no changes. No teammate
 ownership exception was needed. The original build workflow is also unchanged.
+
+## Review Fix 01: app-owned integration boundary
+
+These are Alex-owned exported names, reconciled with the **review drafts**
+`docs/integration/NANDA-ROUTING.md` and `VICTOR-TERRAIN.md` read from local
+`origin/main`. They are not claims of teammate approval or delivered ML/mesh.
+No new solver, asset format, slope suitability rule or physics is introduced.
+
+Before, a core route was only `{ source: 'demo' | 'ml' | 'none', points: XZ[] }`
+and `HeightProvider` exposed only `bounds` and `heightAt`. Existing demo/none
+inputs and pure-core legacy ML inputs remain accepted. Core validation is metric
+validation only; integrations must use the app boundary, never treat direct
+`engine.dispatch({type:'route', ...})` as terrain/planner approval. Scene rendering
+always runs the full validation even if a caller bypasses that boundary.
+
+After, `Route.source` also supports `computed` (classical) and `hybrid`.
+`Route.context?: RouteContextV1` contains `contractVersion`, region/frame/revision,
+planner kind/name/version and `visitOrder`. `Route.unavailableReason?: string`
+explains absence. Planned routes require context at the app boundary:
+
+```ts
+// Before: no frame, revision, objectives or truthful classical provenance.
+engine.dispatch({ type: 'route', route: { source: 'ml', points } });
+
+// After: points start at mission.shuttle and include both objective positions.
+// Example assumes the candidate is classical; it does not implement an algorithm.
+const result = applyRouteCandidate(engine, world.heights, {
+  source: 'computed', points,
+  context: {
+    contractVersion: 1,
+    regionId: world.region.id,
+    frameId: world.region.frameId,
+    terrainRevision: world.heights.terrainRevision,
+    planner: { kind: 'classical', name: 'Actual solver name', version: 'Actual version' },
+    visitOrder: [world.mission.tasks[0].id, world.mission.tasks[1].id],
+  },
+});
+// result: {ok:true} or {ok:false,reason}; failure publishes source:'none',
+// points:[], unavailableReason. No replacement path is fabricated.
+```
+
+`applyRouteCandidate`, `validateSceneRoute` and `createRouteVisual` are exported
+from `src/adapters/routes.ts`; `RouteContextV1` is in `src/core/contracts.ts`.
+Planner kinds map exactly: demo → demo, trained-ml → ml, classical → computed,
+hybrid → hybrid. An unversioned planned route is rejected by the scene.
+External exhaustive source/event switches must handle the added variants.
+
+Exactly two mission objective IDs are required for planned routes, each present
+once in `visitOrder`. Their **first** encounters must occur in that order, both
+at waypoint level and on the rendered lookup polyline. Shuttle and objective
+position tolerance is **1 metre**, an app integration choice pending team review,
+not a physical suitability threshold. A return to the same shuttle is allowed;
+first encounter semantics do not forbid retracing. The core deliberately remains
+flexible in mission task count/types; `demoMission` supplies two distinct types.
+
+Visual safety uses the same Three.js centripetal Catmull-Rom curve and default
+arc-length divisions as Rachel's current `createRoutePath`, then its exact
+`max(2, ceil(length * 4))` spaced lookup table. Every segment between table
+entries is checked against playable bounds and valid bilinear cells, expanded
+by a conservative **0.75 m** radius for the centred chevron and bevel. This tests
+the geometry the renderer actually interpolates, including smoothing excursions.
+The rectangle test can reject a safe near-edge path; it never clamps or fabricates
+height. The scene rejects visuals above 200,000 table steps (about 50 km lookup
+length), separately from the existing 10,000-waypoint input cap. If Rachel changes
+her curve/table/arrow dimensions, this adapter must be reviewed with her.
+
+`createRouteVisual` owns identity-based rebuild, disposal and recoverable route
+errors, including errors during `update`/`setProgress`. The app displays
+`Route unavailable: ...`; RAF, sky, player and simulation continue. Failed route
+identities are remembered rather than retried every frame. A new valid identity
+or reset restores the route. No renderer-owned files are modified.
+
+`createHeightGrid` still consumes the existing float32 little-endian grid and
+returns `HeightGrid` (`bounds`, `cellMetres`, nullable `heightAt`, `coversArea`).
+`HeightProvider` extends this with `contractVersion:1`, `regionId`, `frameId`,
+`terrainRevision`, `coverage:'bilinear-valid-cells'`, `noDataPolicy:'reject-scene'`.
+`Region.terrainRevision` is optional for core backwards compatibility and always
+set by `loadDemoWorld`. The demo revision is SHA-256 over a deterministic descriptor
+containing a SHA-256 of grid bytes, region/frame/CRS/origin/bounds, grid dimensions,
+spacing, encoding and no-data interpretation. Compare the returned opaque string;
+it is not the raw grid file hash. Byte or coordinate-transform changes invalidate
+old plans. Future Victor adapters must supply matching identity, nullable sampling
+and conservative `coversArea` semantics for their actual asset; this does not
+prescribe a second permanent terrain file format.
+
+No-data remains nonfinite or absolute sample >= 1e30, with all four bilinear
+neighbours required. Outside coverage returns null. RAW intentionally rejects the
+**whole scene** if any grid cell is invalid, including holes between display mesh
+vertices. Partial mesh rendering is deferred for Victor review. No fake 0 m
+fallback is used.
+
+Snapshots now share frozen region, mission, task and route objects until those
+fields change. Input updates private movement intent without publishing redundant
+snapshots; steps publish elapsed simulation time. Route replacement copies and
+freezes only once; reset reuses the frozen initial snapshot. `route-changed`
+(source, simTimeSeconds) joins existing task/reset semantic events. Task updates
+replace only the affected task/list/mission. Input deduplication clears on reset,
+unlock, pause, blur and visibility loss, retaining unsubscribe/dispose behavior.
+The app overlay also labels unknown resources NOT SIMULATED and chooses the
+nearest pending/active task so a finished site cannot block interaction.

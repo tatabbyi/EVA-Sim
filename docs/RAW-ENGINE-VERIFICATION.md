@@ -1,5 +1,8 @@
 # RAW v0.1 work report
 
+The opening results and hashes record the historical Phase II baseline. Current
+review-fix results are appended under Review Fix 01 below.
+
 Branch: `feat/raw-engine-v01`.
 Base: `ac2e18819e3462a89798fb88a75e22cfdd28733e` (matched local upstream/main at preflight).
 Phase I: `656135e`.
@@ -78,3 +81,94 @@ restrictions require these checks to run outside the filesystem sandbox.
 Screenshots are generated at `/tmp/raw-{engine,preview,missing}-smoke.png`.
 No native Windows or physically disconnected offline verification was performed.
 Run `npm run build` before `npm test`: the desktop asset test consumes `dist/`.
+
+## Review Fix 01 — Commit B and final verification
+
+Local implementation on `feat/raw-engine-v01`, based on reviewed `86cd344`.
+Commit A: `2cd18ab36cea79c09f7753773049c541a4681cd1`.
+Commit B: resolve with `git log -1 --format=%H --grep='harden route contract'`;
+this report is included in that commit. No fetch/push/merge/PR/connector was used.
+
+The versioned route/provider API, compatibility limits, before/after examples,
+objective order/tolerance, conservative smoothed geometry/arrow coverage and
+whole-scene no-data rejection are documented in [RAW-ENGINE-V01.md](RAW-ENGINE-V01.md#review-fix-01-app-owned-integration-boundary).
+These exports are app-owned proposals reconciled with the local integration
+drafts; teammate approval and future mesh/planner integration remain separate.
+
+| Final check (2026-11-14, Linux x64) | Result |
+|---|---|
+| `npm ci` | PASS, unchanged lockfile; Electron postinstall succeeds |
+| `npm run typecheck`, `npm run build` | PASS; Vite renderer chunk warning, 929.19 kB |
+| `npm test` | PASS, 17 cases; all original 8 core/adapter cases retained |
+| Scoped workflow YAML/native OS matrix/permissions | PASS, local parse/assertions; no Actions run initiated |
+| Occupied port 5173 | PASS; launcher exits 1 with port-in-use diagnostic before Electron launch |
+| `npm run smoke` | PASS; native GUI, terrain, pause/reset, pointer lock, WASD/Shift |
+| `npm run smoke:preview` | PASS; actual preview root/canvas, no RAW root, 4 m terrain-ready badge |
+| `npm run smoke:missing` | PASS; visible 404 terrain error |
+| `npm run dev:electron -- --smoke` | PASS, serial run |
+| `npm run dist:linux` | PASS, native Linux AppImage build |
+| `release/linux-unpacked/eva-sim --smoke` | PASS on isolated retry; first attempt failed pointer lock |
+| AppImage `--appimage-extract-and-run --smoke` | PASS; actual packaged Linux GUI and local assets |
+| Packaged missing-grid smoke | PASS; recoverable visible load error |
+| `npm run dist:win` | PASS, Linux cross-build of unsigned NSIS EXE only |
+| Native Windows build/GUI/install | NOT TESTED; release acceptance remains blocked pending user push/Windows CI and manual install |
+| Physically disconnected offline run | NOT TESTED; local protocol assets exercised, no disconnected-network claim |
+| Full manual boundary traversal | NOT TESTED; containment/border cases covered by automated tests |
+| `git diff --check`, protected source diff against `ac2e188` | PASS; protected source diff empty |
+
+Route regressions include wrong region/frame/revision; revision changes from both
+grid bytes and coordinate transform; missing/reordered objectives and wrong shuttle;
+nonfinite/duplicate points; no-data between valid endpoints; smoothing into a gap
+clear of straight waypoint segments; border/arrow excursion; repeated invalid
+updates and runtime rendering failure; valid replacement/recovery, snapshot
+immutability, semantic route/reset/task events and unsubscribe. Actual input adapter
+is tested for repeated intent suppression, changed yaw/run and reset/disposal.
+
+The deterministic 10,000-point test performs 1,200 fixed steps/visual ticks with
+zero JSON serializations, shared route identity, one initial validation/build and
+one build on replacement. Final captured loop time was 7.20 ms **with a stub visual**;
+this is allocation/rebuild instrumentation, not Three.js/GPU timing or a promised
+frame rate. Rachel's existing visual animation cost is unchanged.
+
+Local ignored evidence (not committed):
+
+- `release/evidence/review-fix-01-build.log`, `review-fix-01-tests.log`
+- `release/evidence/review-fix-01-smoke.log`, `review-fix-01-preview.log`,
+  `review-fix-01-missing.log`, `review-fix-01-dev-smoke.log`
+- `release/evidence/review-fix-01-linux-build.log`, `review-fix-01-win-cross-build.log`
+- `release/evidence/review-fix-01-unpacked-smoke.log` (first pointer-lock failure),
+  `review-fix-01-unpacked-smoke-retry.log` (PASS),
+  `review-fix-01-appimage-smoke.log`, `review-fix-01-packaged-missing.log`
+- `release/evidence/raw-engine-smoke.png`, `raw-preview-smoke.png`, `raw-missing-smoke.png`;
+  current screenshots are also produced at `/tmp/` by the smoke runner. The RAW
+  image was inspected: terrain, yellow chevrons, objective marker and HUD visible.
+
+Initial sandbox GUI/listen operations were denied; reruns outside that sandbox
+passed. A final sandboxed packaging attempt hit DNS failure while obtaining a build
+tool and was stopped; the outside-sandbox build then succeeded. An initial dev
+smoke run alongside another GUI smoke lost pointer lock; serial verification passed.
+The isolated packaged smoke retry also passed after an initial pointer-lock failure.
+These failures show GUI focus sensitivity; native CI result logs after the user's
+push must be inspected, not inferred from this local result.
+
+Final local artifact SHA-256 (supersedes historical Phase II hashes above):
+
+```text
+412f3a4e119a175b24ebf07dfa3aca545aef9873d069e39c7ebfb6bd982e0d21  release/EVA-RAW-0.1.0-linux-x86_64.AppImage
+26751636fa7123862cd11d486896efc5d6648ff829f7e4c8306ad8764c1be480  release/EVA-RAW-0.1.0-win-x64.exe
+```
+
+Exact review-fix file list:
+
+| Commit | Files |
+|---|---|
+| A | `.github/workflows/raw-desktop.yml`, `electron/smoke.cjs`, `electron/smoke-readiness.cjs`, `scripts/dev-electron.mjs`, `tests/smoke.test.mjs`, `docs/RAW-ENGINE-VERIFICATION.md` |
+| B | `src/core/contracts.ts`, `src/core/engine.ts`, `src/adapters/input.ts`, `src/adapters/routes.ts`, `src/adapters/scene.ts`, `src/adapters/world.ts`, `src/app/App.tsx`, `tests/core.test.mjs`, `tests/routes.test.mjs`, `docs/RAW-ENGINE-V01.md`, `docs/RAW-ENGINE-VERIFICATION.md` |
+
+No installers, logs, screenshots, release outputs, team assets or teammate source
+are committed. No new dependency changes. Prior build-tool advisory notices,
+unsigned/default-icon packaging and Vite bundle warning remain outside this fix.
+Unknown HUD resources are now explicitly NOT SIMULATED in the app overlay, and
+nearest interaction filters out finished/failed tasks; core task-count/type policy
+remains deliberately flexible. Partial terrain meshes remain deferred. The source
+fix does not satisfy the outstanding native Windows or human offline release gates.
