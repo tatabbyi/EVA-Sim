@@ -2,6 +2,7 @@
 const { writeFile } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
+const { previewReady } = require('./smoke-readiness.cjs');
 module.exports = function runSmoke(win, app) {
       const timer = setTimeout(() => { console.error('SMOKE timeout'); app.exit(1); }, 35000);
       win.webContents.once('did-finish-load', async () => {
@@ -15,7 +16,8 @@ module.exports = function runSmoke(win, app) {
               const error = document.querySelector('[role="alert"]');
               if (${missing} && error?.textContent.includes('404')) return 'missing-data error visible';
               if (!${missing} && error) throw new Error(error.textContent);
-              const ready = ${preview} ? !!document.querySelector('canvas') : !!document.querySelector('[data-scene-ready="true"]');
+              if (${preview} && /No terrain yet|failed|error/i.test(document.querySelector('.preview-badge')?.textContent ?? '')) throw new Error('Preview terrain unavailable: ' + document.querySelector('.preview-badge').textContent);
+              const ready = ${preview} ? (${previewReady.toString()})(document, location) : !!document.querySelector('[data-scene-ready="true"]');
               if (ready && !${missing}) {
                 const response = await fetch('/grids/height_4m.bin');
                 if (!response.ok || (await response.arrayBuffer()).byteLength !== 4202500) throw new Error('Grid fetch failed');

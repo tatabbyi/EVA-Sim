@@ -61,3 +61,20 @@ The final filenames and hashes below identify local artifacts, not published rel
 70aa8d8112703958d81a57c6dd8ac6cccb69e5a62e365c9c4d209dbee5c4d027  release/EVA-RAW-0.1.0-linux-x86_64.AppImage
 22b5ca5614d86f9212dd2613e158f15a5b654afa240e13bd8d54ca63a207ede6  release/EVA-RAW-0.1.0-win-x64.exe
 ```
+
+## Review Fix 01 — Commit A
+
+Verified against parent `86cd344` on 2026-11-14. The feature-branch push trigger
+is limited to `feat/raw-engine-v01`; native Linux/Windows jobs and artifact-only
+uploads remain. YAML parsed locally; Actions execution awaits the user's push.
+Existing electron-builder output confirms `linux-unpacked/eva-sim` and
+`win-unpacked/EVA RAW.exe` are the actual unpacked executable paths.
+
+`npm ci`, build, preview-readiness regression and occupied-port regression pass.
+Linux RAW, actual preview (including terrain-ready badge), missing-grid, and dev
+GUI smokes pass. An initial concurrent dev smoke lost pointer lock to another
+smoke window; running GUI checks serially resolves this. Sandbox GUI/listen
+restrictions require these checks to run outside the filesystem sandbox.
+Screenshots are generated at `/tmp/raw-{engine,preview,missing}-smoke.png`.
+No native Windows or physically disconnected offline verification was performed.
+Run `npm run build` before `npm test`: the desktop asset test consumes `dist/`.

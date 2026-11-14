@@ -1,6 +1,9 @@
 # Written with AI assistance (Codex). Artifacts only; no publication.
 name: RAW desktop
 on:
+  push:
+    branches:
+      - feat/raw-engine-v01
   workflow_dispatch:
   pull_request:
 permissions:
