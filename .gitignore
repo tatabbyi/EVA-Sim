@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+# raw downloads and intermediate rasters stay out of git (regenerate with pipeline/)
+pipeline/raw/
+pipeline/work/
+*.tif
+*.tif.aux.xml
+__pycache__/

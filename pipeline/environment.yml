@@ -1,0 +1,12 @@
+# Owner: Victor. conda env create -f pipeline/environment.yml && conda activate eva
+name: eva
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - gdal
+  - numpy
+  - scipy
+  - scikit-image
+  - pymartini
+  - rasterio
