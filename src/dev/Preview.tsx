@@ -10,7 +10,8 @@
 // Alex's core now owns EVA movement, route state, and task status; the existing scene remains the renderer.
 // Resource and timing overlays are still preview samples until their physical models are integrated.
 // Terrain appears only when the height grid exists in public/grids/. Nothing here is made-up terrain.
-// The route and stops are sample positions on the real terrain until Nanda's routes (training.json) exist.
+// The stops are sample positions on the real terrain. The path between them is planned from the real heights by
+// src/sim/pathfind.ts (cheapest O2, research/02 + 07) and re-planned from wherever you stand.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
@@ -44,6 +45,9 @@ import type { Mission, Region, TaskId } from '../core/contracts';
 import { createFixedClock } from '../adapters/clock';
 import { applyRouteCandidate } from '../adapters/routes';
 import { createHeightGrid, type HeightProvider } from '../adapters/world';
+import { buildLattice, costFrom, distanceToPath, pathLength, planTour, type TourPlan } from '../sim/pathfind';
+import { createPathPlanner, type PathPlanner } from '../sim/planner';
+import { setCostTerrain, setHomeCost } from '../sim/cost';
 import './Preview.css';
 
 const EYE = 1.7;
@@ -53,7 +57,8 @@ const O2_CAPACITY = 390;
 const WALK = 2.2; // m/s
 const RUN = 4.6;
 
-// Sample route from the landing site towards the delta (west-north-west), stops marked.
+// Sample line from the landing site towards the delta (west-north-west). Only used to PLACE the sample objectives;
+// the path you are guided along is planned (src/sim/pathfind.ts).
 const ROUTE: XZ[] = [
   { x: 0, z: 0 }, { x: -8, z: -20 }, { x: -20, z: -45 }, { x: -55, z: -70 },
   { x: -90, z: -110 }, { x: -140, z: -130 }, { x: -190, z: -170 },
@@ -69,6 +74,10 @@ const TASK_PLAN: { at: number; kind: TaskKind; offset: number; minutes: number }
   { at: 6, kind: 'moxie', offset: -2, minutes: 4 },
 ];
 const EVA_MINUTES = 45; // total time to be back at base
+const OFF_ROUTE_M = 10; // farther than this from the guide: re-plan from where you stand
+const REPLAN_EVERY_S = 0.5; // how often to check
+/** Plans from any point through objectives `todo` (cheapest order), counting the walk home unless toHome is false. */
+type PlanFrom = (from: XZ, todo: number[], toHome?: boolean) => TourPlan | null;
 const RESERVE_MINUTES = 30; // O2 kept back, as minutes of resting in the suit (meta.json o2.reserveMinutes)
 const BASE_O2_CAPACITY = 3000; // litres the base store holds
 const ISRU_L_PER_MIN = 58 / 60; // the base O2 plant (MOXIE-style ISRU), litres per minute
@@ -150,7 +159,8 @@ export function Preview() {
   const leaveConsoleRef = useRef<() => void>(() => {});
   const launchRef = useRef<() => string | null>(() => null); // go out through the airlock; returns why not, if not
   const consoleRef = useRef<HTMLDivElement | null>(null);
-  const beginEvaRef = useRef<(chosen: boolean[], routeTo: number) => void>(() => {});
+  const beginEvaRef = useRef<(chosen: boolean[]) => void>(() => {});
+  const planRef = useRef<PlanFrom | null>(null); // the path planner, once its fields are ready
   const enterBaseRef = useRef<() => void>(() => {});
   const evaStartRef = useRef(0);
   const [terrainNote, setTerrainNote] = useState('Loading terrain…');
@@ -171,6 +181,7 @@ export function Preview() {
   const [door, setDoor] = useState<XZ>({ x: 0, z: 6.4 });
   const [baseStore, setBaseStore] = useState(2400); // litres in the base O2 store
   const [lastEva, setLastEva] = useState({ returned: 212, isru: 96 }); // sample numbers until you've done an EVA
+  const [plannerReady, setPlannerReady] = useState(false);
 
   useEffect(() => {
     const t = window.setInterval(() => {
@@ -396,6 +407,12 @@ export function Preview() {
     let rocks: RockField | null = null;
     let shadows: SunShadows | null = null;
     const tasks: TaskSite[] = [];
+    // Path planning (src/sim/pathfind.ts), set once the fields for the airlock and every objective are ready.
+    let pathPlanner: PathPlanner | null = null;
+    let planFrom: PlanFrom | null = null;
+    let planOrder: number[] = []; // objectives in the order the current guide visits them
+    let guidePoints: XZ[] = []; // the path the guide currently shows
+    let lastReplan = 0;
     // Laying the path: both versions get the same route.
     const layRoute = (pts: XZ[]) => {
       const routePoints = pts.map((p) => ({ x: p.x, z: p.z }));
@@ -415,6 +432,7 @@ export function Preview() {
       route = createRoutePath(pts, groundAt);
       scene.add(route.group);
       glass.setRoute(pts.map((p) => new THREE.Vector3(p.x, 0, p.z)), groundAt);
+      guidePoints = routePoints;
     };
     // Solid things cast sun shadows (glowing or see-through ones don't).
     const castShadows = (root: THREE.Object3D) =>
@@ -494,6 +512,21 @@ export function Preview() {
     // relative to the body) stay put when you look around. The same as the camera the rest of the time.
     const body = new THREE.PerspectiveCamera();
 
+    // The next objective to walk to: the first one still to do in the planned order.
+    const nextObjective = () => {
+      const i = planOrder.find((k) => picked[k] && tasks[k]?.state === 'idle');
+      return i ?? tasks.findIndex((t, k) => picked[k] && t.state === 'idle');
+    };
+    // Plan from `from` (any point) through the objectives still to do, or home, and show it as the guide.
+    const guideFrom = (from: XZ): boolean => {
+      const plan = planFrom?.(from, homeBound ? [] : tasks.flatMap((t, i) => (picked[i] && t.state !== 'done' ? [i] : [])));
+      if (plan) {
+        planOrder = plan.order;
+        if (plan.points.length > 1) layRoute(plan.points);
+      } else if (planFrom) setNotice({ level: 'warning', title: 'ROUTE UNAVAILABLE', message: 'No walkable path from here: slopes over 24° or the edge of the map.' });
+      return !!plan;
+    };
+
     startSampleRef.current = () => {
       if (active >= 0 || near < 0 || !runtimeEngine) return;
       const task = tasks[near];
@@ -512,37 +545,24 @@ export function Preview() {
       controls.enabled = task.lookAt === null; // core and laser hold your view on the target; panorama lets you turn
     };
 
-    // The way home: a new path from where you stand, back along the route you came, to the landing site.
+    // The way home: the cheapest path from where you stand to the airlock (re-planned if you stray).
     const goHome = () => {
       if (homeBound || !heights) return;
       homeBound = true;
-      const cx = camera.position.x, cz = camera.position.z;
-      let k = 0, best = Infinity;
-      ROUTE.forEach((p, i) => {
-        const d = (p.x - cx) ** 2 + (p.z - cz) ** 2;
-        if (d < best) {
-          best = d;
-          k = i;
-        }
-      });
-      const pts: XZ[] = [{ x: cx, z: cz }];
-      for (let i = k; i >= 0; i--) {
-        const prev = pts[pts.length - 1];
-        if (Math.hypot(ROUTE[i].x - prev.x, ROUTE[i].z - prev.z) > 1.5) pts.push(ROUTE[i]);
-      }
-      if (pts.length < 2) pts.push(ROUTE[0]);
-      if (base) pts.push({ x: base.door.x, z: base.door.z }); // all the way to the airlock
-      layRoute(pts);
+      guideFrom({ x: camera.position.x, z: camera.position.z });
       currentRef.current = -1;
       setHeadingHome(true);
     };
     goHomeRef.current = goHome;
 
     // BEGIN EVA at the console: suit filled, out through the airlock, only the picked missions are out there.
-    beginEvaRef.current = (flags, routeTo) => {
+    beginEvaRef.current = (flags) => {
       if (!base || !heights) return;
       const shuttle = { x: base.door.x, z: base.door.z };
-      const plannedRoute = [shuttle, ...ROUTE.slice(0, routeTo + 1)];
+      // Airlock through the picked objectives in the cheapest order (walk home counted).
+      const plan = planFrom?.(shuttle, flags.flatMap((f, i) => (f ? [i] : [])));
+      if (!plan || plan.points.length < 2) return void setNotice({ level: 'warning', title: 'ROUTE UNAVAILABLE', message: 'No walkable path to the picked objectives.' });
+      const plannedRoute = plan.points;
       const engine = replaceRuntime(flags, shuttle, plannedRoute);
       if (!engine) return;
       engine.resume();
@@ -556,15 +576,16 @@ export function Preview() {
       active = tasks.findIndex((t, i) => picked[i] && t.state === 'active');
       near = -1;
       controls.enabled = active < 0 || tasks[active].lookAt === null;
+      planOrder = plan.order;
       layRoute(plannedRoute);
-      const first = ROUTE[Math.min(1, routeTo)];
+      const first = plannedRoute[Math.min(plannedRoute.length - 1, 3)]; // face along the path
       camera.position.set(base.door.x, groundAt(base.door.x, base.door.z) + EYE, base.door.z);
       camera.lookAt(first.x, groundAt(first.x, first.z) + EYE, first.z);
       camera.fov = 80; // helmet on: wide view through the dome
       camera.updateProjectionMatrix();
       o2Now = O2_CAPACITY;
       fog = 0;
-      currentRef.current = active >= 0 ? active : tasks.findIndex((t, i) => picked[i] && t.state === 'idle');
+      currentRef.current = active >= 0 ? active : nextObjective();
       modeRef.current = 'eva';
       evaStartRef.current = performance.now();
       audio.start();
@@ -665,7 +686,6 @@ export function Preview() {
       setHeightRange(material, lo, hi);
       heights = grid;
 
-      layRoute(ROUTE);
       // The base sits just behind where you start, its airlock facing the landing site.
       base = createSpaceBase(new THREE.Vector3(0, groundAt(0, 15), 15), new THREE.Vector3(0, 0, -1), groundAt);
       scene.add(base.group);
@@ -685,15 +705,35 @@ export function Preview() {
       setObjTitles(tasks.map((t) => t.title));
       setHeightsLoaded(grid);
       setDoor({ x: base.door.x, z: base.door.z });
-      // Loose rocks everywhere except on the path, at the objectives and inside the base.
-      const nearRoute = (x: number, z: number, r: number) => {
-        for (let i = 0; i + 1 < ROUTE.length; i++) {
-          const a = ROUTE[i], b = ROUTE[i + 1];
-          const dx = b.x - a.x, dz = b.z - a.z, t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz)));
-          if ((x - a.x - dx * t) ** 2 + (z - a.z - dz * t) ** 2 < (1.1 + r) ** 2) return true;
-        }
-        return false;
-      };
+
+      // Path planning: a lattice on the real heights (no-go inside the base), then one field per goal in a worker.
+      const door0 = { x: base.door.x, z: base.door.z }, theBase = base, half = ((grid.n - 1) * grid.cell) / 2;
+      setCostTerrain(groundAt);
+      try {
+        const bounds = runtimeRegion?.playableBounds ?? { minX: 100 - half, maxX: half - 100, minZ: 100 - half, maxZ: half - 100 };
+        const L = buildLattice(groundAt, bounds, Math.max(4, grid.cell), {
+          alignX: -half,
+          alignZ: -half,
+          isBlocked: (x, z) => theBase.keepClear(x, z, 0.75) && Math.hypot(x - door0.x, z - door0.z) > 3,
+        });
+        pathPlanner = createPathPlanner(L);
+        const [home, ...fields] = await Promise.all([door0, ...STOPS].map((g) => pathPlanner!.field(g)));
+        planFrom = (from, todo, toHome = true) => planTour(L, fields, toHome ? home : null, from, todo);
+        setHomeCost((x, z) => costFrom(L, home, { x, z }));
+      } catch (err) {
+        console.warn('Path planner unavailable', err);
+      }
+      if (disposed) return;
+      planRef.current = planFrom;
+      setPlannerReady(!!planFrom);
+      const tour = planFrom?.(door0, TASK_PLAN.map((_, i) => i)) ?? null; // the full tour: the guide before you go out
+      if (tour) {
+        planOrder = tour.order;
+        layRoute(tour.points);
+      }
+      const clearPath = tour ? [...tour.points, ...tour.back] : [];
+      // Loose rocks everywhere except on the planned tour (scenery, not obstacles), at the objectives and in the base.
+      const nearRoute = (x: number, z: number, r: number) => clearPath.length > 1 && distanceToPath(clearPath, { x, z }) < 1.1 + r;
       rocks = createRockField(groundAt, (x, z, r) =>
         nearRoute(x, z, r) || base!.keepClear(x, z, r) || tasks.some((t) => (t.anchor.x - x) ** 2 + (t.anchor.z - z) ** 2 < (2.8 + r) ** 2),
       );
@@ -701,7 +741,7 @@ export function Preview() {
       // Sun shadows on the ground (base, rocks, tools, hands)
       shadows = createSunShadows(renderer, sunLight, geo, m - 1, size);
       scene.add(shadows.catcher);
-      setTerrainNote(`Terrain: ${grid.cell} m grid, heights ${lo.toFixed(0)} to ${hi.toFixed(0)} m · sample route with ${STOPS.length} objectives`);
+      setTerrainNote(`Terrain: ${grid.cell} m grid, heights ${lo.toFixed(0)} to ${hi.toFixed(0)} m · ${tour ? `planned path through ${STOPS.length} objectives` : 'path planner unavailable'}`);
       let demoTaskIndex = -1;
       if (DEMO === 'base') {
         // ?demo=base: stand out on the plain and look back at the base
@@ -722,11 +762,10 @@ export function Preview() {
       }
       if (modeRef.current === 'eva') {
         const shuttle = { x: camera.position.x, z: camera.position.z };
-        const demoRoute = [shuttle, ...ROUTE];
-        const engine = replaceRuntime(TASK_PLAN.map(() => true), shuttle, demoRoute);
+        const engine = replaceRuntime(TASK_PLAN.map(() => true), shuttle, [shuttle, ...(tour?.points ?? [door0])]);
         engine?.resume();
         runtimePausedRef.current = !engine;
-        if (engine) layRoute(demoRoute);
+        if (engine) guideFrom(shuttle);
         if (engine && demoTaskIndex >= 0) startSampleRef.current();
       }
     })();
@@ -950,10 +989,11 @@ export function Preview() {
             setSample((p) => ({ ...p, done: p.done + 1 }));
             setObjDone((prev) => prev.map((v, k) => v || k === finished));
           }
-          currentRef.current = tasks.findIndex((x, i) => picked[i] && x.state === 'idle'); // next objective's clock starts
           audio.chime();
           sampled++;
           if (sampled >= goal) goHome(); // all objectives done: the path turns for home
+          else guideFrom({ x: camera.position.x, z: camera.position.z }); // on to the next one, from where you are
+          currentRef.current = homeBound ? -1 : nextObjective(); // next objective's clock starts
           window.setTimeout(() => setInteraction((cur) => (cur.kind === 'stored' ? { kind: 'none' } : cur)), 2200);
         }
       } else {
@@ -991,6 +1031,12 @@ export function Preview() {
       sky.update(camera, time);
       daySky.update(camera);
       base?.update(time);
+      // Strayed from the guide (or went to another objective first): re-plan from where you stand.
+      if (modeRef.current === 'eva' && active < 0 && guidePoints.length > 1 && time - lastReplan > REPLAN_EVERY_S) {
+        lastReplan = time;
+        const here = { x: camera.position.x, z: camera.position.z };
+        if (distanceToPath(guidePoints, here) > OFF_ROUTE_M && !guideFrom(here)) lastReplan = time + 5; // no path: try again later
+      }
       route?.setProgress(camera.position.x, camera.position.z);
       route?.update(time);
       body.position.copy(camera.position);
@@ -1009,7 +1055,8 @@ export function Preview() {
       // AR objective marker: projected onto the glass over the next objective (or the airlock on the way home)
       const targetEl = targetRef.current;
       if (targetEl) {
-        const next = homeBound ? null : (tasks.find((x, i) => picked[i] && x.state === 'idle') ?? null);
+        const ni = homeBound ? -1 : nextObjective();
+        const next = ni >= 0 ? tasks[ni] : null;
         const pos = next ? next.anchor : base ? base.door : null;
         if (!pos || active >= 0) {
           targetEl.style.display = 'none';
@@ -1136,6 +1183,9 @@ export function Preview() {
       daySky.dispose();
       base?.dispose();
       route?.dispose();
+      pathPlanner?.dispose();
+      setCostTerrain(null);
+      setHomeCost(null);
       for (const task of tasks) task.dispose();
       terrain?.geometry.dispose();
       material.dispose();
@@ -1193,11 +1243,11 @@ export function Preview() {
   const listDone = objTitles.filter((_, i) => chosen[i] && objDone[i]).length;
 
   // ---- the Setup console: missions with their numbers, and the plan's totals (research/02 walking model)
-  const setupRoute: XZ[] = useMemo(() => [door, ...ROUTE], [door]);
   const heightAt = useMemo(() => (x: number, z: number) => (heightsLoaded ? sampleBilinear(heightsLoaded, x, z) : 0), [heightsLoaded]);
+  // Distance from the airlock to each objective on its own cheapest path.
   const stopMetres = useMemo(
-    () => TASK_PLAN.map((p, i) => (heightsLoaded ? walkCost([...setupRoute.slice(0, p.at + 2), STOPS[i]], heightAt).metres : 0)),
-    [heightsLoaded, setupRoute, heightAt],
+    () => TASK_PLAN.map((_, i) => pathLength((plannerReady && planRef.current?.(door, [i], false)?.points) || [])),
+    [plannerReady, door],
   );
   const missions: SetupMission[] = TASK_PLAN.map((p, i) => ({
     title: TASK_TITLES[p.kind],
@@ -1208,12 +1258,19 @@ export function Preview() {
     done: objDone[i],
   }));
   const planIdx = TASK_PLAN.map((_, i) => i).filter((i) => chosen[i] && !objDone[i]);
-  const routeTo = planIdx.length ? Math.max(...planIdx.map((i) => TASK_PLAN[i].at)) + 1 : -1; // index in setupRoute
+  const planKey = planIdx.join(',');
+  // The planned EVA: airlock → picked objectives in the cheapest order → airlock (src/sim/pathfind.ts).
+  const tour = useMemo(
+    () => (plannerReady && planKey ? planRef.current?.(door, planKey.split(',').map(Number)) ?? null : null),
+    [plannerReady, door, planKey],
+  );
+  const setupRoute: XZ[] = useMemo(() => (tour ? [...tour.points, ...tour.back.slice(1)] : [door]), [tour, door]);
+  const routeTo = tour ? setupRoute.length - 1 : -1; // the whole route is the plan
   const walk = useMemo(() => {
     if (!heightsLoaded || mode === 'eva') return null;
-    const outPath = routeTo > 0 ? setupRoute.slice(0, routeTo + 1) : [door];
-    return { out: walkCost(outPath, heightAt), back: walkCost([...outPath].reverse(), heightAt) };
-  }, [heightsLoaded, mode, routeTo, setupRoute, door, heightAt]);
+    if (!tour) return planKey ? null : { out: walkCost([door], heightAt), back: walkCost([door], heightAt) };
+    return { out: walkCost(tour.points, heightAt), back: walkCost(tour.back, heightAt) };
+  }, [heightsLoaded, mode, tour, planKey, door, heightAt]);
   let levels: SetupLevels | null = null;
   if (walk) {
     const { out, back } = walk;
@@ -1234,7 +1291,10 @@ export function Preview() {
   const planFits = !!levels && levels.walkLitres + levels.taskLitres + levels.reserve <= levels.tank && levels.minutes <= levels.evaMinutes;
   const launchWhy = !heightsLoaded
     ? 'Terrain still loading…'
-    : !planIdx.length ? 'Plan the EVA at the console first (pick a mission)' : !planFits ? 'The plan does not fit: check O₂ and time at the console' : null;
+    : !plannerReady ? 'Planning routes…'
+    : !planIdx.length ? 'Plan the EVA at the console first (pick a mission)'
+    : !tour ? 'No walkable route for this plan'
+    : !planFits ? 'The plan does not fit: check O₂ and time at the console' : null;
   const beginEva = () => {
     setBaseStore((v) => Math.max(0, v - O2_CAPACITY)); // the suit is filled from the store
     setSecondsLeft(EVA_MINUTES * 60);
@@ -1244,7 +1304,7 @@ export function Preview() {
     setNotice(null);
     setInteraction({ kind: 'none' });
     setMode('eva');
-    beginEvaRef.current(chosen.map((c, i) => c && !objDone[i]), routeTo - 1);
+    beginEvaRef.current(chosen.map((c, i) => c && !objDone[i]));
   };
   launchRef.current = () => {
     if (launchWhy) return launchWhy;
