@@ -1,4 +1,5 @@
 // Written with AI assistance (Codex). Alex's scene composition; uses Rachel's public visual APIs.
+import { loadTerrain } from '../terrain/loader';
 import * as THREE from 'three';
 import { createTerrainMaterial, setHeightRange } from '../terrain/material';
 import { createStarrySky } from '../terrain/sky';
@@ -35,7 +36,23 @@ export function mountScene(host: HTMLDivElement, engine: Engine, heights: Height
   material.uniforms.uO2Left.value = 0; material.uniforms.uReserve.value = 0;
   material.uniforms.uHasO2.value = 0; material.uniforms.uHasComms.value = 0;
   material.uniforms.uSlopeWarn.value = 90; material.uniforms.uSlopeMax.value = 91;
-  scene.add(new THREE.Mesh(geometry,material));
+ const baseMesh = new THREE.Mesh(geometry, material);
+scene.add(baseMesh);
+// Victor: add ?tiles to the URL to swap the display mesh for the 64 terrain tiles. Without it nothing changes.
+if (new URLSearchParams(window.location.search).has('tiles')) {
+  fetch(`${import.meta.env.BASE_URL}data/meta.json`)
+    .then((r) => r.json())
+    .then((meta) => loadTerrain(meta, material))
+    .then((tiles) => {
+      const free = () => tiles.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+      if (cleaned) { free(); return; }
+      material.side = THREE.DoubleSide; material.needsUpdate = true;
+      scene.remove(baseMesh);
+      scene.add(tiles);
+      disposers.push(free);
+    })
+    .catch((err) => console.warn('tiles not used, keeping the grid mesh', err));
+}
   const snapshot = engine.getSnapshot();
   const core = snapshot.mission.tasks.find(t => t.type === 'take-core');
   let sample = core ? createSampleSite(new THREE.Vector3(core.position.x,groundAt(core.position.x,core.position.z),core.position.z)) : null;
