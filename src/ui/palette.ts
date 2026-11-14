@@ -56,40 +56,47 @@ export interface TerrainPreset {
 }
 
 export const terrainPresets = {
+  martian: {
+    label: 'The Martian',
+    ramp: ['#4f3527', '#9b6b55', '#c98475', '#e98c5c', '#f7cd7d', '#d86b46', '#c24a31', '#6b2525'],
+    cycle: 6,
+    line: '#231c1a',
+    lineStrength: 0.5,
+  },
   marsTrue: {
     label: 'Realistic Mars',
     ramp: ['#8a5a3c', '#a86d45', '#c08a5b', '#b07850', '#9a6545', '#c79a6e', '#7d5236'],
     cycle: 6,
     line: '#3b2418',
-    lineStrength: 0.22,
+    lineStrength: 0.5,
   },
   pastel: {
     label: 'Pastel',
     ramp: ['#ebafaf', '#ffc2aa', '#fad5b3', '#fbf6d2', '#e2ecc0'],
     cycle: 3,
     line: '#8a6a63',
-    lineStrength: 0.35,
+    lineStrength: 0.5,
   },
   marsOchre: {
     label: 'Mars ochre',
     ramp: ['#a4552f', '#c3843f', '#d6b06a', '#b07a4f', '#5f6f6a', '#6e4030', '#8c4a2e'],
     cycle: 3,
     line: '#ffffff',
-    lineStrength: 0.35,
+    lineStrength: 0.45,
   },
   topo: {
     label: 'Topographic map',
     ramp: ['#2f6b4f', '#5f8f4e', '#a7b56a', '#e3d58f', '#d9a35f', '#b5704a', '#f2efe9'],
     cycle: 0,
     line: '#3a3a3a',
-    lineStrength: 0.4,
+    lineStrength: 0.5,
   },
   sandstone: {
     label: 'Sandstone',
     ramp: ['#d9c3a5', '#cbb08e', '#bd9d78', '#cbb08e'],
     cycle: 4,
     line: '#5a4632',
-    lineStrength: 0.45,
+    lineStrength: 0.55,
   },
   thermal: {
     label: 'Thermal',
@@ -101,7 +108,7 @@ export const terrainPresets = {
 } satisfies Record<string, TerrainPreset>;
 
 export type TerrainPresetName = keyof typeof terrainPresets;
-export const defaultTerrainPreset: TerrainPresetName = 'marsTrue';
+export const defaultTerrainPreset: TerrainPresetName = 'martian';
 
 /** The default ground ramp (for legends). */
 export const terrainRamp = terrainPresets[defaultTerrainPreset].ramp;

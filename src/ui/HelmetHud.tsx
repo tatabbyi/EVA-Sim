@@ -32,6 +32,8 @@ export interface HelmetHudProps {
   alert?: HudAlert | null;
   o2: SuitBar;
   temperature: SuitBar;
+  /** Receives the glass-reflection element; slide it sideways as the head turns (see Preview). */
+  sheenRef?: MutableRefObject<HTMLDivElement | null>;
   /** Receives the helmet element so createHeadSway() can move it (head moving inside the helmet). */
   swayTargetRef?: MutableRefObject<HTMLDivElement | null>;
 }
@@ -87,18 +89,46 @@ function visorGeometry(w: number, h: number) {
 
 // ---------- Pieces ----------
 
-function Bar({ bar, colour, top, bottom, dir, angle, font }: {
-  bar: SuitBar; colour: string; top: Pt; bottom: Pt; dir: Pt; angle: number; font: number;
+function Bar({ bar, colour, top, bottom, dir, angle, font, gid }: {
+  bar: SuitBar; colour: string; top: Pt; bottom: Pt; dir: Pt; angle: number; font: number; gid: string;
 }) {
   const f = Math.min(1, Math.max(0, bar.fraction));
-  const line = `M ${s(bottom)} L ${s(top)}`;
-  const valueAt = sub(top, mul(dir, font * 1.1));
-  const labelAt = add(bottom, mul(dir, font * 1.6));
+  const len = Math.hypot(top.x - bottom.x, top.y - bottom.y);
+  const lvl = add(bottom, mul(sub(top, bottom), f)); // where the fill ends
+  const track = `M ${s(bottom)} L ${s(top)}`;
+  const fill = `M ${s(bottom)} L ${s(lvl)}`;
+  const seg = len / 24; // segmented fill: 24 cells
+  const outward = pt(dir.y, -dir.x); // towards the glass edge
+  const ticks = Array.from({ length: 11 }, (_, k) => {
+    const at = add(bottom, mul(sub(top, bottom), k / 10));
+    const a = add(at, mul(outward, font * 0.85));
+    const b = add(at, mul(outward, font * (k % 5 === 0 ? 1.45 : 1.15)));
+    return <path key={k} d={`M ${s(a)} L ${s(b)}`} className={`hud-bar-tick${k % 5 === 0 ? ' hud-bar-tick--major' : ''}`} />;
+  });
+  const valueAt = sub(top, mul(dir, font * 1.25));
+  const labelAt = add(bottom, mul(dir, font * 1.8));
   return (
     <g className={`hud-bar hud-bar--${bar.level ?? 'ok'}`} style={{ '--bar-colour': colour } as CSSProperties}>
-      <path d={line} className="hud-bar-edge" />
-      <path d={line} className="hud-bar-track" />
-      {f > 0.005 && <path d={line} className="hud-bar-fill" pathLength={1} strokeDasharray={`${f} 1`} />}
+      <defs>
+        <linearGradient id={gid} gradientUnits="userSpaceOnUse" x1={bottom.x} y1={bottom.y} x2={top.x} y2={top.y}>
+          <stop offset="0" stopColor={colour} stopOpacity="0.95" />
+          <stop offset="1" stopColor={colour} stopOpacity="0.4" />
+        </linearGradient>
+      </defs>
+      {/* glass tube: coloured rim, dark translucent inside, a shine line down one side */}
+      <path d={track} className="hud-bar-rim" />
+      <path d={track} className="hud-bar-glass" />
+      <path d={track} className="hud-bar-shine" transform={`translate(${s(mul(outward, -font * 0.22))})`} />
+      {f > 0.005 && (
+        <>
+          <path d={fill} className="hud-bar-fill" stroke={`url(#${gid})`} strokeDasharray={`${seg * 0.72} ${seg * 0.28}`} />
+          <path d={fill} className="hud-bar-flow" strokeDasharray={`${seg * 1.6} ${len * 2}`}>
+            <animate attributeName="stroke-dashoffset" from="0" to={-len} dur="2.6s" repeatCount="indefinite" />
+          </path>
+          <circle cx={lvl.x} cy={lvl.y} r={font * 0.36} className="hud-bar-cap" />
+        </>
+      )}
+      {ticks}
       <text className="hud-bar-value" transform={`translate(${s(valueAt)}) rotate(${angle})`} textAnchor="middle">
         {bar.value}
       </text>
@@ -186,8 +216,8 @@ const HelmetFrame = memo(function HelmetFrame({ w, h, uid }: { w: number; h: num
               </radialGradient>
               {/* suit fabric: woven threads (warp and weft) plus soft folds, lit so the weave and wrinkles catch light */}
               <filter id={id('fabric')} filterUnits="userSpaceOnUse" x={-w * 0.2} y={-h * 0.2} width={w * 1.4} height={h * 1.4}>
-                <feTurbulence type="fractalNoise" baseFrequency="0.9 0.07" numOctaves="2" seed="11" result="warp" />
-                <feTurbulence type="fractalNoise" baseFrequency="0.07 0.9" numOctaves="2" seed="5" result="weft" />
+                <feTurbulence type="fractalNoise" baseFrequency="0.25 0.02" numOctaves="2" seed="11" result="warp" />
+                <feTurbulence type="fractalNoise" baseFrequency="0.02 0.25" numOctaves="2" seed="5" result="weft" />
                 <feComposite in="warp" in2="weft" operator="arithmetic" k1="0" k2="0.5" k3="0.5" k4="0" result="weave" />
                 <feTurbulence type="fractalNoise" baseFrequency="0.005 0.011" numOctaves="3" seed="21" result="folds" />
                 <feComposite in="weave" in2="folds" operator="arithmetic" k1="0" k2="0.3" k3="0.7" k4="0" result="relief" />
@@ -196,6 +226,37 @@ const HelmetFrame = memo(function HelmetFrame({ w, h, uid }: { w: number; h: num
                 </feDiffuseLighting>
                 <feComposite in="lit" in2="SourceGraphic" operator="arithmetic" k1="1" k2="0" k3="0" k4="0" result="shaded" />
                 <feComposite in="shaded" in2="SourceAlpha" operator="in" />
+              </filter>
+              {/* quilted padding: puffed diamonds with stitched seams */}
+              <radialGradient id={id('puff')} cx="45%" cy="40%" r="65%">
+                <stop offset="0%" stopColor="#ffffff" stopOpacity="0.35" />
+                <stop offset="70%" stopColor="#000000" stopOpacity="0" />
+                <stop offset="100%" stopColor="#3b3327" stopOpacity="0.3" />
+              </radialGradient>
+              <pattern id={id('quilt')} patternUnits="userSpaceOnUse" width={h * 0.2} height={h * 0.2} patternTransform="rotate(45)">
+                <rect width={h * 0.2} height={h * 0.2} fill={`url(#${id('puff')})`} />
+                <path d={`M 0 0 H ${h * 0.2} M 0 0 V ${h * 0.2}`} stroke="#8c826f" strokeWidth="1.2" strokeDasharray="3 2.5" opacity="0.85" />
+              </pattern>
+              {/* twill weave on the side panels */}
+              <pattern id={id('twill')} patternUnits="userSpaceOnUse" width="16" height="16" patternTransform="rotate(32)">
+                <path d="M 0 0 V 16" stroke="#5c5244" strokeWidth="1.1" opacity="0.22" />
+              </pattern>
+              <linearGradient id={id('fadeDown')} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stopColor="#fff" />
+                <stop offset="0.55" stopColor="#fff" />
+                <stop offset="0.8" stopColor="#000" />
+              </linearGradient>
+              <mask id={id('upper')}>
+                <rect x={-w * 0.2} y={-h * 0.2} width={w * 1.4} height={h * 0.9} fill={`url(#${id('fadeDown')})`} />
+              </mask>
+              <clipPath id={id('shellArea')}>
+                <path clipRule="evenodd" d={`M ${-w * 0.2} ${-h * 0.2} H ${w * 1.2} V ${h * 1.2} H ${-w * 0.2} Z ${g.outline}`} />
+              </clipPath>
+              <filter id={id('rubberFx')} x="-5%" y="-5%" width="110%" height="110%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation={h * 0.0025} result="b" />
+                <feTurbulence type="fractalNoise" baseFrequency="1.3" numOctaves="1" seed="4" result="n" />
+                <feComposite in="n" in2="b" operator="arithmetic" k1="0" k2="0.07" k3="1" k4="-0.035" result="g" />
+                <feComposite in="g" in2="b" operator="in" />
               </filter>
               <clipPath id={id('visor')}>
                 <path d={g.outline} />
@@ -217,8 +278,6 @@ const HelmetFrame = memo(function HelmetFrame({ w, h, uid }: { w: number; h: num
                 strokeDasharray={`${w * 0.22} ${w * 2}`} strokeDashoffset={-w * 0.07} filter={`url(#${id('blur-s')})`} />
               <path d={`M ${w * 0.7} ${h * 0.86} Q ${w * 0.83} ${h * 0.84} ${w * 0.88} ${h * 0.72}`} fill="none" stroke="#fff"
                 strokeOpacity="0.05" strokeWidth={h * 0.03} strokeLinecap="round" filter={`url(#${id('reflect')})`} />
-              {/* neck ring, seen through the bottom of the visor, out of focus */}
-              <ellipse cx={w / 2} cy={h * 1.16} rx={w * 0.46} ry={h * 0.32} fill={`url(#${id('ring')})`} />
               {/* deep soft shadow where the glass meets the helmet */}
               <path d={g.outline} fill="none" stroke="#000" strokeWidth={h * 0.08} opacity="0.5" filter={`url(#${id('soft')})`} />
             </g>
@@ -227,53 +286,44 @@ const HelmetFrame = memo(function HelmetFrame({ w, h, uid }: { w: number; h: num
             {/* ---- helmet shell around the visor, out of focus so the edge melts into the glass ---- */}
             <path d={`M ${-w * 0.2} ${-h * 0.2} H ${w * 1.2} V ${h * 1.2} H ${-w * 0.2} Z ${g.outline}`} fillRule="evenodd"
               fill={`url(#${id('shell')})`} filter={`url(#${id('fabric')})`} />
-            {/* ---- rubber seal where the visor meets the helmet: solid, so nothing shows through the joint ---- */}
-            <g>
-              <path d={g.outline} fill="none" stroke="#0a0b0d" strokeWidth={h * 0.056} strokeLinejoin="round" />
-              <path d={g.outline} fill="none" stroke={`url(#${id('rubber')})`} strokeWidth={h * 0.036} strokeLinejoin="round" />
-              <path d={g.outline} fill="none" stroke="rgba(255, 255, 255, 0.13)" strokeWidth={h * 0.004} strokeLinejoin="round"
-                transform={`translate(${w / 2} ${h * 0.47}) scale(0.982) translate(${-w / 2} ${-h * 0.47})`} />
+            {/* ---- suit fabric details on the shell: quilted padding above, twill side panels, stitched seams, crew patch ---- */}
+            <g clipPath={`url(#${id('shellArea')})`}>
+              <rect x={-w * 0.2} y={-h * 0.2} width={w * 1.4} height={h * 0.9} fill={`url(#${id('quilt')})`} mask={`url(#${id('upper')})`} />
+              <rect x={-w * 0.2} y={h * 0.45} width={w * 1.4} height={h * 0.8} fill={`url(#${id('twill')})`} />
+              <g transform={`translate(${w * 0.075} ${h * 0.1})`}>
+                <rect width={w * 0.075} height={h * 0.05} rx={h * 0.006} fill="#d9cfbb" stroke="#6f6656" strokeWidth="1" />
+                <rect x={h * 0.006} y={h * 0.006} width={w * 0.075 - h * 0.012} height={h * 0.038} rx={h * 0.004} fill="none"
+                  stroke="#8c826f" strokeWidth="1" strokeDasharray="3 2" />
+                <rect x={h * 0.012} y={h * 0.017} width={w * 0.012} height={h * 0.016} fill="#b3352b" />
+                <text x={h * 0.012 + w * 0.02} y={h * 0.031} fontSize={h * 0.02} fontWeight="700" fill="#4d4539" fontFamily="system-ui, sans-serif">
+                  EV1
+                </text>
+              </g>
+            </g>
+            {/* ---- rubber seal where the visor meets the helmet: one soft rounded matte profile, lighter in the middle
+                 like a tube catching light, with a fine grain and a broad dull sheen on top (no hard lines) ---- */}
+            <g filter={`url(#${id('rubberFx')})`}>
+              {[
+                [0.062, '#08090a'],
+                [0.05, '#101113'],
+                [0.039, '#17181b'],
+                [0.028, '#1e1f23'],
+                [0.017, '#25262a'],
+              ].map(([wf, c]) => (
+                <path key={c as string} d={g.outline} fill="none" stroke={c as string} strokeWidth={h * (wf as number)} strokeLinejoin="round" />
+              ))}
+              <path d={g.topArc(0)} fill="none" stroke="#ffffff" strokeOpacity="0.07" strokeWidth={h * 0.03} strokeLinecap="round" />
             </g>
             {/* ---- thick clear polycarbonate at the edge of the dome, catching light ---- */}
             <g clipPath={`url(#${id('visor')})`} filter={`url(#${id('blur-s')})`}>
               <path d={g.outline} fill="none" stroke="#ffffff" strokeOpacity="0.09" strokeWidth={h * 0.07} />
-              <path d={g.topArc(h * 0.024)} fill="none" stroke="#ffffff" strokeOpacity="0.45" strokeWidth="2.5" strokeLinecap="round"
-                strokeDasharray={`${w * 0.16} ${w * 0.05} ${w * 0.06} ${w * 2}`} strokeDashoffset={-w * 0.12} />
             </g>
 
-            {/* ---- inside the helmet, at the chin: mic, valve caps, connector, cables (close to the face, slightly soft) ---- */}
-            <g transform={`translate(0 ${-h * 0.035})`}>
-              {/* contact shadows so the parts sit on the neck ring */}
-              <g filter={`url(#${id('blur-m')})`} fill="#000" opacity="0.28">
-                <ellipse cx={w * 0.275} cy={h * 0.985} rx={h * 0.06} ry={h * 0.014} />
-                <ellipse cx={w * 0.405} cy={h * 0.975} rx={w * 0.04} ry={h * 0.012} />
-                <ellipse cx={w * 0.795} cy={h * 0.98} rx={h * 0.055} ry={h * 0.013} />
-              </g>
-              {/* cables */}
-              <path d={`M ${w * 0.41} ${h * 0.9} Q ${w * 0.45} ${h * 0.97} ${w * 0.52} ${h * 0.95} T ${w * 0.6} ${h * 1.0}`}
-                fill="none" stroke="#2f8f4e" strokeWidth={h * 0.005} strokeLinecap="round" />
-              <path d={`M ${w * 0.43} ${h * 0.88} Q ${w * 0.47} ${h * 0.93} ${w * 0.5} ${h * 0.99}`}
-                fill="none" stroke="#141416" strokeWidth={h * 0.006} strokeLinecap="round" />
-              {/* left valve cap */}
-              <circle cx={w * 0.27} cy={h * 0.935} r={h * 0.062} fill={`url(#${id('cap')})`} />
-              <circle cx={w * 0.27} cy={h * 0.935} r={h * 0.045} fill="none" stroke="#9c9588" strokeWidth={h * 0.004} />
-              <ellipse cx={w * 0.262} cy={h * 0.906} rx={h * 0.022} ry={h * 0.011} fill="#ffffff" opacity="0.85" />
-              {/* microphone: black foam on a stem */}
-              <rect x={w * 0.395} y={h * 0.9} width={w * 0.012} height={h * 0.06} rx={w * 0.004} fill="#1a1b1e" />
-              <ellipse cx={w * 0.4} cy={h * 0.905} rx={w * 0.042} ry={h * 0.06} fill={`url(#${id('mic')})`} />
-              <ellipse cx={w * 0.39} cy={h * 0.874} rx={w * 0.014} ry={h * 0.014} fill="#ffffff" opacity="0.14" />
-              {/* small connector */}
-              <rect x={w * 0.47} y={h * 0.875} width={w * 0.03} height={h * 0.04} rx={h * 0.008} fill="#f0ece3" stroke="#8d877b" strokeWidth="1" />
-              {/* right valve knob */}
-              <circle cx={w * 0.79} cy={h * 0.93} r={h * 0.055} fill={`url(#${id('cap')})`} />
-              <circle cx={w * 0.79} cy={h * 0.93} r={h * 0.018} fill="#b8b1a4" />
-              <ellipse cx={w * 0.782} cy={h * 0.904} rx={h * 0.02} ry={h * 0.01} fill="#ffffff" opacity="0.85" />
-            </g>
           </svg>
   );
 });
 
-export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef }: HelmetHudProps) {
+export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, sheenRef }: HelmetHudProps) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const id = (name: string) => `${uid}-${name}`;
   const helmetRef = useRef<HTMLDivElement>(null);
@@ -313,8 +363,13 @@ export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef }:
   return (
     <div className="hud">
       <div className="hud-helmet" ref={helmetRef}>
-        <div className="hud-breath" />
         {g && <HelmetFrame w={w} h={h} uid={uid} />}
+        {g && (
+          <div className="hud-glass-fx" style={{ clipPath: `path('${g.outline}')` }}>
+            <div className="hud-sheen" ref={sheenRef} />
+            <div className="hud-breath" />
+          </div>
+        )}
         {g && (
           <svg className="hud-svg" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden={!alert}>
             <defs>
@@ -381,11 +436,11 @@ export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef }:
             {/* ---- O2 and temperature: parallel to the right edge ---- */}
             <g className="hud-on-glass" style={{ fontSize: font }}>
               {[
-                { bar: o2, colour: 'var(--c-o2)', d: inset * 1.5 + font * 4 },
-                { bar: temperature, colour: 'var(--c-temperature)', d: inset * 1.5 },
-              ].map(({ bar, colour, d }) => {
+                { bar: temperature, colour: 'var(--c-temperature)', d: inset * 1.5 + font * 4 },
+                { bar: o2, colour: 'var(--c-o2)', d: inset * 1.5 },
+              ].map(({ bar, colour, d }, i) => {
                 const e = g.rightEdge(d, 0.24, 0.7);
-                return <Bar key={bar.label} bar={bar} colour={colour} {...e} font={font} />;
+                return <Bar key={bar.label} bar={bar} colour={colour} {...e} font={font} gid={id(`bar${i}`)} />;
               })}
             </g>
           </svg>

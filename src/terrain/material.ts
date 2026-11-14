@@ -69,6 +69,7 @@ uniform vec2 uGridOrigin;     // world x/z of sample (0,0)
 uniform float uGridCell;
 uniform float uGridN;
 
+uniform float uRelief;       // exaggerates slopes in the lighting only (1 = true slope), so small relief reads
 uniform float uDetail;       // 0 = smooth, 1 = full close-up surface detail (bumps and grit)
 uniform vec3 uFogColor;
 uniform float uFogNear;
@@ -153,7 +154,8 @@ void main() {
   base = mix(vec3(grey), base, uSaturation);
 
   // 2. Light it with the sun so relief still reads.
-  float lambert = max(dot(n, normalize(uSunDir)), 0.0);
+  vec3 nl = normalize(vec3(n.x * uRelief, n.y, n.z * uRelief)); // lighting normal with exaggerated relief
+  float lambert = max(dot(nl, normalize(uSunDir)), 0.0);
   vec3 col = mix(uShadow, base, uAmbient + (1.0 - uAmbient) * lambert);
 
   // 2b. Close-up surface detail: small bumps catch the sun, fine grit in the colour. Fades out with distance
@@ -163,7 +165,7 @@ void main() {
     vec2 q = vPosW.xz * 0.9;
     float e = 0.12;
     float h0 = fbm(q), hx = fbm(q + vec2(e, 0.0)), hz = fbm(q + vec2(0.0, e));
-    vec3 nd = normalize(n + vec3(-(hx - h0), 0.0, -(hz - h0)) / e * 0.45 * near);
+    vec3 nd = normalize(nl + vec3(-(hx - h0), 0.0, -(hz - h0)) / e * 0.45 * near);
     float lambertD = max(dot(nd, normalize(uSunDir)), 0.0);
     col = mix(col, mix(uShadow, base, uAmbient + (1.0 - uAmbient) * lambertD), near);
     col *= 1.0 + (fbm(vPosW.xz * 6.0) - 0.5) * 0.22 * near;
@@ -251,14 +253,14 @@ export function createTerrainUniforms() {
     uSaturation: { value: 1 },
 
     uSunDir: { value: new THREE.Vector3(0.4, 0.6, -0.3).normalize() },
-    uAmbient: { value: 0.35 },
+    uAmbient: { value: 0.25 },
     uShadow: { value: color(palette.shadow) },
     uLine: { value: color(palette.line) },
     uSteepColor: { value: color(palette.steep) },
 
     uMinor: { value: 1 },
     uMajor: { value: 5 },
-    uLineWidth: { value: 1 },
+    uLineWidth: { value: 1.4 },
     uMinorStrength: { value: 0.35 },
     uMajorStrength: { value: 0.8 },
     uSlopeWarn: { value: 20 },
@@ -284,6 +286,7 @@ export function createTerrainUniforms() {
     uGridCell: { value: 2 },
     uGridN: { value: 2049 },
 
+    uRelief: { value: 3 },
     uDetail: { value: 0.8 },
     uFogColor: { value: color(palette.space) },
     uFogNear: { value: 1200 },

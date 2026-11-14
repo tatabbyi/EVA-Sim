@@ -15,14 +15,18 @@ export interface HeadSway {
   look(dx: number, dy: number): void;
   /** Once per frame. speed: 0 = standing, 1 = walking, 2 = running. */
   step(dt: number, speed: number): void;
+  /** Current helmet offset in CSS pixels (for anything else that moves with the helmet, e.g. the 3D interior). */
+  readonly offset: { x: number; y: number };
 }
 
 export function createHeadSway(target: HTMLElement): HeadSway {
   let x = 0, y = 0, vx = 0, vy = 0;
   let phase = 0, amp = 0;
   let last = '';
+  const offset = { x: 0, y: 0 };
 
   return {
+    offset,
     look(dx, dy) {
       vx -= dx * LOOK_GAIN;
       vy -= dy * LOOK_GAIN;
@@ -43,7 +47,9 @@ export function createHeadSway(target: HTMLElement): HeadSway {
 
       // Rounded so a helmet at rest stops touching the DOM entirely.
       // Whole pixels and no rotation: the helmet layer is then moved, never resampled, so text and edges stay crisp.
-      const tf = `translate3d(${Math.round(x + bobX)}px, ${Math.round(y + bobY)}px, 0)`;
+      offset.x = Math.round(x + bobX);
+      offset.y = Math.round(y + bobY);
+      const tf = `translate3d(${offset.x}px, ${offset.y}px, 0)`;
       if (tf !== last) {
         target.style.transform = tf;
         last = tf;

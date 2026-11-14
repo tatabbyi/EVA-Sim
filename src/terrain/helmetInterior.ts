@@ -6,36 +6,12 @@
 // Sways with the helmet: pass the head-sway offset each frame.
 
 import * as THREE from 'three';
+import { createFabricTexture, createNoiseTexture } from './noiseTexture';
 
 export interface HelmetInterior {
   /** Draw on top of what's already on screen. offset: head-sway offset of the helmet in CSS pixels. */
   render(renderer: THREE.WebGLRenderer, widthPx: number, heightPx: number, offset: { x: number; y: number }): void;
   dispose(): void;
-}
-
-/** Small grey noise canvas used as a bump map: foam on the mic, texture on the pad. */
-function noiseTexture(size = 128, seed = 1): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = c.height = size;
-  const ctx = c.getContext('2d')!;
-  const img = ctx.createImageData(size, size);
-  let a = seed >>> 0;
-  const rand = () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-  for (let i = 0; i < size * size; i++) {
-    const v = 90 + rand() * 120;
-    img.data.set([v, v, v, 255], i * 4);
-  }
-  ctx.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(3, 3);
-  return tex;
 }
 
 export function createHelmetInterior(fovDeg = 80): HelmetInterior {
@@ -52,7 +28,7 @@ export function createHelmetInterior(fovDeg = 80): HelmetInterior {
   bounce.position.set(-0.3, -1, 0.2);
   scene.add(key, bounce);
 
-  const foam = keep(noiseTexture(128, 7));
+  const foam = keep(createNoiseTexture(128, 7));
   const whitePlastic = keep(new THREE.MeshPhysicalMaterial({ color: '#f3f0ea', roughness: 0.32, clearcoat: 0.6, clearcoatRoughness: 0.25 }));
   const greyPlastic = keep(new THREE.MeshStandardMaterial({ color: '#a9a397', roughness: 0.5 }));
   const darkRubber = keep(new THREE.MeshStandardMaterial({ color: '#1b1c1f', roughness: 0.85 }));
@@ -62,7 +38,8 @@ export function createHelmetInterior(fovDeg = 80): HelmetInterior {
   const greenWire = keep(new THREE.MeshStandardMaterial({ color: '#2e8b4c', roughness: 0.55 }));
   const blackWire = keep(new THREE.MeshStandardMaterial({ color: '#111114', roughness: 0.6 }));
   const padFoam = keep(new THREE.MeshStandardMaterial({ color: '#e8dcc4', roughness: 0.95, bumpMap: foam, bumpScale: 0.003 }));
-  const ringMat = keep(new THREE.MeshPhysicalMaterial({ color: '#ece4d4', roughness: 0.45, clearcoat: 0.3 }));
+  const collarCloth = keep(createFabricTexture('#e7e0d2', 0.25, 256, 13, 6));
+  const ringMat = keep(new THREE.MeshStandardMaterial({ map: collarCloth, roughness: 0.92 }));
 
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
     const mesh = new THREE.Mesh(keep(geo), mat);
@@ -75,8 +52,8 @@ export function createHelmetInterior(fovDeg = 80): HelmetInterior {
     return add(new THREE.TubeGeometry(curve, 48, radius, 10, false), mat, 0, 0, 0);
   };
 
-  // Neck ring: the front arc of a big cream ring just below the chin.
-  const ring = add(new THREE.TorusGeometry(0.34, 0.035, 20, 96, Math.PI * 1.2), ringMat, 0, -0.36, -0.12);
+  // Suit collar: a padded cream fabric ring just below the chin; the hardware below sits in it.
+  const ring = add(new THREE.TorusGeometry(0.36, 0.065, 24, 96, Math.PI * 1.2), ringMat, 0, -0.43, -0.1);
   ring.rotation.set(Math.PI / 2 + 0.25, 0, -Math.PI * 0.1 - Math.PI);
 
   // Left valve cap: white disc with a rim groove and a darker centre.
