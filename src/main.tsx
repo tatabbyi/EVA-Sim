@@ -10,8 +10,8 @@ applyPaletteToCss();
 document.body.style.margin = '0';
 document.documentElement.style.background = 'var(--c-space)';
 
-// #preview opens Rachel's look preview; everything else goes to the app (Alex).
-// Listens for hash changes, so typing #preview into an open tab switches straight away.
+// The normal localhost page and #preview open the same existing local scene.
+// Keep the hash listener so older #preview links continue to work.
 function Root() {
   const [hash, setHash] = useState(window.location.hash);
   useEffect(() => {
