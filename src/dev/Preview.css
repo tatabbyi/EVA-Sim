@@ -1,0 +1,25 @@
+/* Written with AI assistance (Claude). Owner: Rachel. */
+.preview {
+  position: fixed;
+  inset: 0;
+  background: var(--c-space);
+}
+.preview-canvas {
+  position: absolute;
+  inset: 0;
+}
+.preview-canvas canvas {
+  display: block;
+}
+.preview-badge {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  max-width: 60ch;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--c-hud-dim);
+  font: 12px/1.45 system-ui, sans-serif;
+  pointer-events: none;
+}
