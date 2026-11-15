@@ -1,7 +1,7 @@
 // Written with AI assistance (Claude).
 // Owner: Rachel. Look preview (open the site with #preview): starry sky, rainbow terrain, the path to follow with
 // rock-sample stops, and the helmet HUD with sample values.
-// Click to look, WASD to walk, Shift to run, Space to jump, E to do an objective or accept an alert, hold F for 2x
+// Click to look, WASD to walk, Shift to run, Space to jump, E to do an objective or accept an alert, hold F for 4x
 // speed, M to mute, O to switch where the path outline is drawn (in the world or on the glass), Esc to release.
 // Two versions: #preview draws the path as 3D arrows on the ground; ?outline=glass#preview draws it on the visor glass.
 // It starts inside the base, helmet off: walk to the console and click its screen to plan the EVA (Esc to stand up),
@@ -93,6 +93,13 @@ const REPLAN_EVERY_S = 0.5; // how often to check
 type PlanFrom = (from: XZ, todo: number[], toHome?: boolean) => TourPlan | null;
 /** The site with no shaping (true-scale terrain, for ?terrain=real). */
 const TRUE_SCALE: SiteShaping = { centre: BASE_AT, closer: 1, hills: 1, landforms: 1, padRadius: 0, padBlend: 1 };
+// The other three of the seven training tasks (research/10-training-tasks.md): listed at the console as coming soon,
+// not playable yet. Minutes are the game times from that file.
+const UPCOMING_TASKS = [
+  { title: 'SuperCam laser shots', minutes: 1 },
+  { title: 'PIXL X-ray map', minutes: 2 },
+  { title: 'SHERLOC organics scan', minutes: 3 },
+];
 const TASK_TITLES: Record<TaskKind, string> = {
   abrade: 'Abrade a rock', core: 'Take a core', depot: 'Sample depot', moxie: 'Run MOXIE',
   laser: 'Laser-zap a boulder (SuperCam)', panorama: 'Panorama from the marker',
@@ -203,10 +210,11 @@ export function Preview() {
   const [objSpent, setObjSpent] = useState<number[]>(TASK_PLAN.map(() => 0)); // seconds spent on each objective
   const [currentObj, setCurrentObj] = useState(0); // the objective whose clock is running (the one you're on)
   const [fogWarn, setFogWarn] = useState(false); // visor fogging up: slow down
-  // Demo fast-forward: while F is held on the EVA, everything runs at 2x (walking, tasks, O2, fog, the clocks).
-  const FAST_FORWARD = 2;
+  // Demo fast-forward: while F is held on the EVA, everything runs at 4x (walking, tasks, O2, fog, the clocks).
+  const FAST_FORWARD = 4;
   const speedRef = useRef(1);
   const [fast, setFast] = useState(false);
+  const [devOn, setDevOn] = useState(false); // developer tools (backtick): the physics telemetry and test links
   const [mode, setMode] = useState(modeRef.current);
   const [basePrompt, setBasePrompt] = useState('');
   // Missions picked at the console: exactly two of the four (the brief, and the physics mission's rule).
@@ -223,7 +231,7 @@ export function Preview() {
   useEffect(() => {
     const t = window.setInterval(() => {
       if (modeRef.current !== 'eva' || runtimePausedRef.current) return; // clocks only run during an active EVA
-      const step = speedRef.current; // seconds of mission time per real second (2 while F is held)
+      const step = speedRef.current; // seconds of mission time per real second (FAST_FORWARD while F is held)
       setSecondsLeft((s) => Math.max(0, s - step));
       const i = currentRef.current;
       setCurrentObj(i);
@@ -377,6 +385,7 @@ export function Preview() {
         if (devTools) gui.show();
         else gui.hide();
         if (badgeRef.current) badgeRef.current.style.display = devTools ? 'block' : 'none';
+        setDevOn(devTools);
       }
       if (e.code === 'KeyM') audio.setMuted(!audio.muted);
       if (modeRef.current === 'console' && e.code === 'Escape') leaveConsole();
@@ -559,13 +568,12 @@ export function Preview() {
         setRuntimeSnapshot(runtimeEngine.getSnapshot());
         runtimeClock = createFixedClock(runtimeEngine);
         // One fixed physics clock, independent of rendering; the camera only supplies the direction you want to go.
-        // Holding F (demo fast-forward) runs this clock FAST_FORWARD times faster: walking, tasks and oxygen all at 2x.
+        // Holding F (demo fast-forward) runs this clock FAST_FORWARD times faster: walking, tasks and oxygen all at 4x.
         let physicsTime = 0, physicsLast = performance.now() / 1000;
         runtimeTimer = setInterval(() => {
           const now = performance.now() / 1000, real = Math.min(0.25, Math.max(0, now - physicsLast));
           physicsLast = now;
           if (!runtimeEngine || !runtimeClock || modeRef.current !== 'eva') return;
-          physicsTime += real * speedRef.current;
           camera.getWorldDirection(intent);
           const length = Math.hypot(intent.x, intent.z) || 1;
           const fwd = Number(keys.has('KeyW')) - Number(keys.has('KeyS'));
@@ -576,7 +584,12 @@ export function Preview() {
             direction: enabled ? { x: (fwd * intent.x - side * intent.z) / length, z: (fwd * intent.z + side * intent.x) / length } : { x: 0, z: 0 },
             run: keys.has('ShiftLeft') || keys.has('ShiftRight'),
           });
-          runtimeClock.tick(physicsTime);
+          // Fed in steps of at most 0.1 s: the fixed clock treats a bigger jump as a pause and skips it, which would
+          // make fast-forward stall on a slow tick.
+          for (let left = real * speedRef.current; left > 1e-6; left -= 0.1) {
+            physicsTime += Math.min(0.1, left);
+            runtimeClock.tick(physicsTime);
+          }
         }, 1000 / 60);
         runtimeOffEvents = runtimeEngine.onEvent((event) => {
           if (event.type !== 'task-started') return;
@@ -1023,7 +1036,7 @@ export function Preview() {
         return;
       }
       const failed = state.mission.status === 'failed';
-      gameDt = state.paused || failed ? 0 : Math.max(0, state.simTimeSeconds - previousSimTime); // 2x while F is held
+      gameDt = state.paused || failed ? 0 : Math.max(0, state.simTimeSeconds - previousSimTime); // FAST_FORWARD x while F is held
       previousSimTime = state.simTimeSeconds;
       if (failed) audio.setDrill(false);
       camera.position.x = state.player.position.x;
@@ -1445,7 +1458,7 @@ export function Preview() {
         compassRef={compassRef}
       />
       </div>
-      {mode === 'eva' && (
+      {mode === 'eva' && devOn && (
         <div style={{ position: 'absolute', left: 16, bottom: 12, zIndex: 20, color: '#e8edf0', background: '#121820cc', padding: 8, fontSize: 12 }} aria-label="EVA physics telemetry">
           <div>{runtimeSnapshot?.physics?.emergencyTest ? 'TEST: 2 g EMERGENCY · ' : ''}ENGINEERING SCENARIO · {runtimeSnapshot?.mission.status ?? 'loading'} · {runtimeSnapshot?.paused ? 'PAUSED' : runtimeSnapshot?.physics?.activity}</div>
           <div>O₂ {runtimeSnapshot?.resources.oxygenGrams?.toFixed(3)} / 750 g · {runtimeSnapshot?.physics?.oxygenRateGramsPerHour.toFixed(2)} g/h · {runtimeSnapshot?.physics?.metabolicPowerWatts.toFixed(1)} W</div>
@@ -1455,7 +1468,7 @@ export function Preview() {
           <button onClick={() => { if (window.location.search) window.location.replace(window.location.pathname + window.location.hash); else window.location.reload(); }}>Reset to base</button> <a href="#raw">RAW diagnostics</a>
         </div>
       )}
-      {mode === 'base' && (
+      {mode === 'base' && devOn && (
         <details style={{ position: 'absolute', bottom: 8, left: 12, zIndex: 20, color: 'white' }}>
           <summary>Developer test {PARAMS.get('emergency') === '1' ? '· TEST: 2 g EMERGENCY ACTIVE' : ''}</summary>
           <a href="?emergency=1#preview">TEST: 2 g emergency oxygen on next EVA</a> · <a href="#raw">RAW diagnostics</a>
@@ -1471,6 +1484,7 @@ export function Preview() {
         <div ref={consoleRef} className="preview-console" style={{ visibility: 'hidden' }}>
           <SetupConsole
             missions={missions}
+            upcoming={UPCOMING_TASKS}
             chosen={chosen.map((c, i) => c && !objDone[i])}
             onToggle={(i) => setChosen((prev) => prev.map((c, k) => (k === i ? !c : c)))}
             levels={levels}
@@ -1484,7 +1498,7 @@ export function Preview() {
         </div>
       )}
       <div className="preview-badge" ref={badgeRef} style={{ display: 'none' }}>
-        PREVIEW · inside: WASD, click the console to plan (Esc to stand up), E at the hatch to go out · outside: click to look, WASD to walk, Shift to run, Space to jump, E to do an objective or accept, hold F for 2x speed, M to mute, T to turn the topology off and on,
+        PREVIEW · inside: WASD, click the console to plan (Esc to stand up), E at the hatch to go out · outside: click to look, WASD to walk, Shift to run, Space to jump, E to do an objective or accept, hold F for 4x speed, M to mute, T to turn the topology off and on,
         O to move the path outline between the world and the glass, Esc to release
         <br />
         {terrainNote}

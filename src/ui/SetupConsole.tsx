@@ -35,6 +35,8 @@ export interface SetupLevels {
 
 export interface SetupConsoleProps {
   missions: SetupMission[]; // the subtasks of the mission
+  /** More tasks, listed after the missions but not selectable yet (coming soon). */
+  upcoming?: { title: string; minutes: number }[];
   chosen: boolean[];
   onToggle(i: number): void;
   levels: SetupLevels | null; // null until the terrain is loaded
@@ -213,7 +215,7 @@ function Meter({ value, total, tone }: { value: number; total: number; tone: 'ok
   );
 }
 
-export function SetupConsole({ missions, chosen, onToggle, levels, heights, route, routeTo, base, ready, onClose }: SetupConsoleProps) {
+export function SetupConsole({ missions, upcoming = [], chosen, onToggle, levels, heights, route, routeTo, base, ready, onClose }: SetupConsoleProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState(-1);
   const region = useMemo(() => mapRegion([base, ...route, ...missions.map((m) => m.at)]), [base, route, missions]);
@@ -248,6 +250,16 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
                   <span className="plan-task-num">{i + 1}</span>
                   <span className="plan-task-name">{m.title}</span>
                   <span className="plan-task-meta">{m.done ? 'Done' : `${m.minutes} min`}</span>
+                </label>
+              </li>
+            ))}
+            {upcoming.length > 0 && <li className="plan-soon">Coming soon</li>}
+            {upcoming.map((u, i) => (
+              <li key={`upcoming-${i}`}>
+                <label className="plan-task is-upcoming" title={`Coming soon · ${u.minutes} min`}>
+                  <input type="checkbox" checked={false} disabled readOnly />
+                  <span className="plan-task-num">{missions.length + i + 1}</span>
+                  <span className="plan-task-name">{u.title}</span>
                 </label>
               </li>
             ))}

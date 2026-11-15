@@ -64,23 +64,25 @@ export interface TerrainPreset {
   colorBy?: 'height' | 'slope';
 }
 
-/** Walkability by slope: what each ground colour means. Flat, easy ground keeps the plain light sand; going up the
- *  hills the visor lays a soft wash of yellow, orange, red, then deep red where it's too steep to walk straight up
- *  or down (the planner's 24° limit, so that ground is only crossed sideways or in a zigzag). The in-between limits
- *  (11° and 16°) are set from the demo site itself, so the colours share what you see about evenly. The plan map
- *  uses the same colours over plain paper. */
+/** Walkability by slope: what each ground colour means. The whole ground gets a light wash, so even the flat parts show
+ *  their small slopes (cream, light yellow, yellow), then amber, orange, red going up the hills, and deep red where it's
+ *  too steep to walk straight up or down (the planner's 24° limit: that ground is only crossed sideways or in a
+ *  zigzag). The limits split the demo area's ground about evenly between the colours (about a quarter of it is under
+ *  3°, half under 7°); 24° is fixed. The plan map uses the same colours over plain paper. */
 export const SLOPE_CLASSES = [
-  { colour: '#dcc4a0', upTo: 8, label: 'Easy' }, // plain light sand (no wash)
-  { colour: '#f6cd4c', upTo: 11, label: 'Gentle' }, // yellow
-  { colour: '#f39237', upTo: 16, label: 'Moderate' }, // orange
+  { colour: '#fff0c2', upTo: 3, label: 'Flat' }, // pale cream
+  { colour: '#ffe08a', upTo: 6, label: 'Level' }, // light yellow
+  { colour: '#ffcc55', upTo: 9, label: 'Easy' }, // yellow
+  { colour: '#fbad3c', upTo: 12, label: 'Gentle' }, // amber
+  { colour: '#f38a34', upTo: 16, label: 'Moderate' }, // orange
   { colour: '#e2483d', upTo: 24, label: 'Steep' }, // red
   { colour: '#a8232f', upTo: 90, label: 'Zigzag only' }, // deep red
 ] as const;
-/** How strongly the slope colours are laid over the ground: nothing on easy ground, then base + perClass x class
- *  (class 1 = Gentle ... 4 = Zigzag only). Shared by the 3D ground (material.ts) and the plan map. */
-export const SLOPE_WASH = { base: 0.42, perClass: 0.08 };
-/** Wash strength for a slope class position t (0 = easy ... 4 = zigzag only; fractions blend between classes). */
-export const slopeWash = (t: number) => Math.min(1, Math.max(0, t)) * (SLOPE_WASH.base + SLOPE_WASH.perClass * t);
+/** How strongly the slope colours are laid over the ground: base on flat ground, plus perClass for each class up
+ *  (class 0 = Flat ... 6 = Zigzag only). Shared by the 3D ground (material.ts) and the plan map. */
+export const SLOPE_WASH = { base: 0.3, perClass: 0.09 };
+/** Wash strength for a slope class position t (0 = flat ... 6 = zigzag only; fractions blend between classes). */
+export const slopeWash = (t: number) => SLOPE_WASH.base + SLOPE_WASH.perClass * Math.max(0, t);
 export const MAP_BARE = '#ece4d8';
 
 export const terrainPresets = {
@@ -89,7 +91,7 @@ export const terrainPresets = {
     // coral and striped rose red over the slopes (warm, no yellow: yellow turned khaki in the orange haze). Height is in the blue
     // contour lines (every 2 m, bolder every 10 m).
     label: 'Walkability (slope)',
-    ramp: ['#dcc4a0', '#dcc4a0', '#f6cd4c', '#f39237', '#e2483d', '#a8232f'], // ground, then the five slope colours
+    ramp: ['#dcc4a0', '#fff0c2', '#ffe08a', '#ffcc55', '#fbad3c', '#f38a34', '#e2483d', '#a8232f'], // ground, then the seven slope colours
     cycle: 0,
     line: '#6fe3ff',
     lineStrength: 0.3,
