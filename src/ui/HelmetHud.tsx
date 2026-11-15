@@ -66,6 +66,8 @@ export interface HelmetHudProps {
   breathRef?: MutableRefObject<HTMLDivElement | null>;
   /** Receives the visor-fog layer; set its --fog CSS variable from 0 (clear) to 1 (fogged), and display (see Preview). */
   fogRef?: MutableRefObject<HTMLDivElement | null>;
+  /** A suit status note shown under the bars (e.g. visor fogging): its own spot, so it never covers alerts or text. */
+  status?: { title: string; message: string } | null;
 }
 
 // ---------- Visor geometry ----------
@@ -218,8 +220,8 @@ function Bar({ bar, colour, top, bottom, dir, angle, font, gid }: {
     <g className={`hud-bar hud-bar--${bar.level ?? 'ok'}`} style={{ '--bar-colour': colour } as CSSProperties}>
       <defs>
         <linearGradient id={gid} gradientUnits="userSpaceOnUse" x1={bottom.x} y1={bottom.y} x2={top.x} y2={top.y}>
-          <stop offset="0" stopColor={colour} stopOpacity="0.85" />
-          <stop offset="1" stopColor={colour} stopOpacity="0.6" />
+          <stop offset="0" stopColor={colour} stopOpacity="0.62" />
+          <stop offset="1" stopColor={colour} stopOpacity="0.38" />
         </linearGradient>
       </defs>
       {/* glass tube: coloured rim, dark translucent inside, a shine line down one side */}
@@ -229,6 +231,8 @@ function Bar({ bar, colour, top, bottom, dir, angle, font, gid }: {
       {f > 0.005 && (
         <>
           <path d={fill} className="hud-bar-fill" stroke={`url(#${gid})`} />
+          {/* a soft highlight down the liquid, like light on a glass tube */}
+          <path d={fill} className="hud-bar-fill-shine" transform={`translate(${s(mul(outward, -font * 0.32))})`} />
         </>
       )}
       {ticks}
@@ -407,7 +411,7 @@ const HelmetFrame = memo(function HelmetFrame({ w, h, uid }: { w: number; h: num
   );
 });
 
-export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, sheenRef, targetRef, interiorRef, breathRef, fogRef }: HelmetHudProps) {
+export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, sheenRef, targetRef, interiorRef, breathRef, fogRef, status }: HelmetHudProps) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const id = (name: string) => `${uid}-${name}`;
   const helmetRef = useRef<HTMLDivElement>(null);
@@ -471,9 +475,9 @@ export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, s
               {items.map((_, k) => (
                 <path key={k} id={id(`arc-obj-i${k}`)} d={g.textArc(inset + font * (1.6 + k * 1.3))} />
               ))}
-              {/* alerts sit below the objectives header line, so they never run into the time */}
-              <path id={id('arc-alert-1')} d={g.topArc(inset + font * 2.8)} />
-              <path id={id('arc-alert-2')} d={g.topArc(inset + font * 4.3)} />
+              {/* alerts sit well below the objectives header line, so they never run into the time */}
+              <path id={id('arc-alert-1')} d={g.topArc(inset + font * 3.4)} />
+              <path id={id('arc-alert-2')} d={g.topArc(inset + font * 4.9)} />
             </defs>
 
             {/* ---- objectives: bending along the top-left of the glass ---- */}
@@ -542,12 +546,26 @@ export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, s
                 const bf = font * 1.4; // bar scale
                 const edge = g.rightEdge(inset * 0.9, 0.04, 0.9);
                 const x0 = Math.min(edge.top.x, edge.bottom.x); // stay inside the glass at both ends
+                const mid = x0 - bf * 2.2; // between the two bars
                 return [
-                  { bar: temperature, colour: 'var(--c-temperature)', x: x0 - bf * 4.4 },
-                  { bar: o2, colour: 'var(--c-o2)', x: x0 },
-                ].map(({ bar, colour, x }, i) => (
-                  <Bar key={bar.label} bar={bar} colour={colour} top={pt(x, edge.top.y)} bottom={pt(x, edge.bottom.y)} dir={pt(0, 1)} angle={0} font={bf} gid={id(`bar${i}`)} />
-                ));
+                  ...[
+                    { bar: temperature, colour: 'var(--c-temperature)', x: x0 - bf * 4.4 },
+                    { bar: o2, colour: 'var(--c-o2)', x: x0 },
+                  ].map(({ bar, colour, x }, i) => (
+                    <Bar key={bar.label} bar={bar} colour={colour} top={pt(x, edge.top.y)} bottom={pt(x, edge.bottom.y)} dir={pt(0, 1)} angle={0} font={bf} gid={id(`bar${i}`)} />
+                  )),
+                  // Suit status (visor fogging) right under BODY and O2, where it belongs, not over other text.
+                  status && (
+                    <g key="status" className="hud-status" role="status">
+                      <text className="hud-status-title" x={mid} y={edge.bottom.y + bf * 3.2} textAnchor="middle">
+                        ⚠ {status.title}
+                      </text>
+                      <text className="hud-status-message" x={mid} y={edge.bottom.y + bf * 3.2 + font * 1.25} textAnchor="middle">
+                        {status.message}
+                      </text>
+                    </g>
+                  ),
+                ];
               })()}
             </g>
           </svg>

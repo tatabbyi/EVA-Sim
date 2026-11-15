@@ -140,6 +140,17 @@
 .hud-alert--warning .hud-alert-title {
   fill: var(--c-warning) !important;
 }
+/* Suit status under the bars (visor fogging) */
+.hud-on-glass .hud-status-title {
+  fill: var(--c-warning);
+  font-size: 0.85em;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+.hud-on-glass .hud-status-message {
+  font-size: 0.78em;
+  opacity: 0.85;
+}
 .hud-alert-message {
   font-size: 0.95em;
 }
@@ -158,11 +169,11 @@
   stroke: color-mix(in srgb, var(--bar-colour) 45%, #ffffff);
   stroke-width: 2.15em;
   stroke-linecap: round;
-  opacity: 0.35;
+  opacity: 0.28;
 }
 .hud-bar-glass {
   fill: none;
-  stroke: rgba(6, 12, 22, 0.42);
+  stroke: rgba(6, 12, 22, 0.28); /* more see-through */
   stroke-width: 2em;
   stroke-linecap: round;
 }
@@ -175,8 +186,14 @@
 .hud-bar-fill {
   fill: none;
   stroke-width: 1.45em;
-  stroke-linecap: butt;
-  filter: drop-shadow(0 0 2px var(--bar-colour));
+  stroke-linecap: round; /* an oval end, like liquid in the tube */
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--bar-colour) 60%, transparent));
+}
+.hud-bar-fill-shine {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 0.22em;
+  stroke-linecap: round;
 }
 .hud-bar-tick {
   stroke: color-mix(in srgb, var(--bar-colour) 60%, transparent);

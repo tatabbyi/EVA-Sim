@@ -7,7 +7,7 @@
   --tan: #c7926a;
   --terracotta: #c37861;
   --clay: #c26860;
-  --teal: #548278;
+  --blue: #0a84ff;
   --ink: #f4ebdf;
   --ink-dim: #cbb9a6;
   --panel: #2c211b;
@@ -125,7 +125,7 @@
   width: 1.2cqw;
   height: 1.2cqw;
   margin: 0;
-  accent-color: var(--teal);
+  accent-color: var(--blue);
   cursor: inherit;
 }
 .plan-task-num {
@@ -175,7 +175,7 @@
 }
 .plan-meter-fill {
   height: 100%;
-  background: var(--teal);
+  background: var(--blue);
 }
 .plan-meter--warning .plan-meter-fill { background: var(--sand); }
 .plan-meter--danger .plan-meter-fill { background: var(--clay); }
@@ -244,7 +244,7 @@
 }
 .plan-route {
   fill: none;
-  stroke: var(--teal);
+  stroke: var(--blue);
   stroke-width: 5;
   stroke-linejoin: round;
   stroke-linecap: round;
@@ -271,7 +271,7 @@
   fill: #fff;
 }
 .plan-marker.is-done circle {
-  fill: var(--teal);
+  fill: var(--blue);
   stroke: #fff6ea;
 }
 .plan-marker.is-done text {

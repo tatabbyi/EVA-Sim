@@ -39,7 +39,9 @@ uniform vec3 uSunDir;
 uniform float uAmbient;
 uniform vec3 uShadow;
 uniform vec3 uLine;
-uniform float uLineLight;    // 1: lines are light added by the visor, 0: painted lines
+uniform float uLineLight;     // 1: lines are light added by the visor, 0: painted lines
+uniform float uColorBySlope;  // 1: ground colour shows walkability by slope (uSlopeStops), not height
+uniform vec4 uSlopeStops;     // slope limits in degrees between the five colours
 uniform vec3 uSteepColor;
 
 uniform float uMinor;         // minor contour interval, m
@@ -155,6 +157,13 @@ void main() {
     : ramp((hb - uHeightMin) / max(uHeightMax - uHeightMin, 1e-3));
   float grey = dot(base, vec3(0.299, 0.587, 0.114));
   base = mix(vec3(grey), base, uSaturation);
+  // Topology colours are for the ground near you: far away they squeeze into thin stripes, so they fade into plain
+  // Mars ground with distance (the visor only colour-codes what's close, like the contour lines).
+  float bandFade = smoothstep(90.0, 320.0, length(cameraPosition - vPosW)) * step(0.5, uCycle);
+  base = mix(base, vec3(0.62, 0.45, 0.33), bandFade);
+  // Walkability mode: the ground itself stays natural Mars (ramp's first colour); the slope colours are laid on
+  // after lighting, below (2c).
+  if (uColorBySlope > 0.5) base = ramp(0.0);
 
   // 2. Light it with the sun so relief still reads.
   vec3 nl = normalize(vec3(n.x * uRelief, n.y, n.z * uRelief)); // lighting normal with exaggerated relief
@@ -174,12 +183,29 @@ void main() {
     col *= 1.0 + (fbm(vPosW.xz * 6.0) - 0.5) * 0.22 * near;
   }
 
-  // 3. Steep ground: tint from uSlopeWarn up to the uSlopeMax limit (25°, research/02).
+  // 2c. Walkability, as visor light over the natural ground: nothing on easy ground, then peach, apricot, coral and
+  // rose red as the slope passes each limit in uSlopeStops (soft 1.5° borders), stronger the steeper it gets. Ground
+  // over the planner's limit (zigzag only) gets diagonal stripes, like no-go hatching on a map. Added after the
+  // lighting so the colours keep their hue (painted in, the orange sunlight turned them muddy), with a little
+  // shading so the relief still reads. Fades out towards the horizon.
   float slope = degrees(acos(clamp(n.y, -1.0, 1.0)));
+  if (uColorBySlope > 0.5) {
+    float k = smoothstep(uSlopeStops.x - 0.75, uSlopeStops.x + 0.75, slope) + smoothstep(uSlopeStops.y - 0.75, uSlopeStops.y + 0.75, slope)
+            + smoothstep(uSlopeStops.z - 0.75, uSlopeStops.z + 0.75, slope) + smoothstep(uSlopeStops.w - 0.75, uSlopeStops.w + 0.75, slope);
+    float s = (vPosW.x + vPosW.z) / 1.4; // stripes 0.7 m wide
+    float stripe = smoothstep(0.5 - fwidth(s), 0.5 + fwidth(s), fract(s));
+    float nogo = smoothstep(uSlopeStops.w - 0.75, uSlopeStops.w + 0.75, slope);
+    float a = clamp(k, 0.0, 1.0) * (0.22 + 0.1 * k) * mix(1.0, 0.35 + 0.65 * stripe, nogo);
+    a *= 1.0 - smoothstep(260.0, 900.0, length(cameraPosition - vPosW));
+    col = mix(col, ramp(k / 4.0) * (0.62 + 0.5 * lambert), a);
+  }
+
+  // 3. Steep ground: tint from uSlopeWarn up to the uSlopeMax limit (25°, research/02).
+  // (Not in walkability mode, which already colours steep ground.)
   // The visor only annotates ground you look down onto: fades with distance and at grazing angles, so far
   // contours don't pile up into streaks along the horizon.
   float ar = (1.0 - smoothstep(uArNear, uArFar, length(cameraPosition - vPosW))) * smoothstep(0.05, 0.22, abs(dot(viewDir, n)));
-  col += uSteepColor * smoothstep(uSlopeWarn, uSlopeMax, slope) * 0.22 * ar; // AR warning glow on steep ground
+  col += uSteepColor * smoothstep(uSlopeWarn, uSlopeMax, slope) * 0.22 * ar * (1.0 - uColorBySlope); // AR warning glow on steep ground
 
   // 4. Comms: diagonal hatching, so it reads as "no signal" without hiding the ground.
   if (uHasComms > 0.5) {
@@ -268,6 +294,8 @@ export function createTerrainUniforms() {
     uShadow: { value: color(palette.shadow) },
     uLine: { value: color(palette.line) },
     uLineLight: { value: 0 },
+    uColorBySlope: { value: 0 },
+    uSlopeStops: { value: new THREE.Vector4(8, 15, 20, 24) },
     uSteepColor: { value: color(palette.steep) },
 
     uMinor: { value: 1 },
@@ -334,6 +362,7 @@ export function setTerrainPreset(mat: TerrainMaterial, name: TerrainPresetName):
   u.uMinorStrength.value = p.lineStrength;
   u.uBanding.value = 'banding' in p ? (p.banding as number) : 0;
   u.uMinor.value = 'minor' in p ? (p.minor as number) : 1;
+  u.uColorBySlope.value = 'colorBy' in p && p.colorBy === 'slope' ? 1 : 0;
   u.uMajor.value = 'major' in p ? (p.major as number) : 5;
   u.uMajorStrength.value = Math.min(1, p.lineStrength * 2.2);
 }

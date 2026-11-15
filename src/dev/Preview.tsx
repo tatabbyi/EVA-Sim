@@ -45,7 +45,8 @@ import { createEngine, type Engine } from '../core/engine';
 import type { DeepReadonly, EngineSnapshot, Region, TaskId } from '../core/contracts';
 import { createFixedClock } from '../adapters/clock';
 import { applyRouteCandidate } from '../adapters/routes';
-import { createHeightGrid, type HeightProvider } from '../adapters/world';
+import type { HeightProvider } from '../adapters/world';
+import { createActiveTerrain } from '../adapters/active-terrain';
 import './Preview.css';
 
 const EYE = 1.7;
@@ -582,24 +583,20 @@ export function Preview() {
         setTerrainNote('No terrain yet: waiting for public/grids/height_4m.bin (Victor). Sky and HUD only.');
         return;
       }
-      if (runtimeRegion) {
-        try {
-          const revision = `preview-grid-${grid.n}-${grid.cell}m`;
-          const heightGrid = createHeightGrid(grid.data.slice().buffer as ArrayBuffer, grid.n, grid.cell, runtimeRegion.visibleBounds);
-          runtimeRegion.terrainRevision = revision;
-          routeTerrain = {
-            ...heightGrid,
-            contractVersion: 1,
-            regionId: runtimeRegion.id,
-            frameId: runtimeRegion.frameId,
-            terrainRevision: revision,
-            coverage: 'bilinear-valid-cells',
-            noDataPolicy: 'reject-scene',
-          };
-          setTerrainProvider(routeTerrain);
-        } catch (error) {
-          console.warn('Core route validation is unavailable for this height grid.', error);
+      try {
+        if (!runtimeRegion) throw Error('Terrain coordinate frame unavailable');
+        const active=await createActiveTerrain(grid,runtimeRegion);
+        if (disposed) return;
+        grid=active.grid; // Geometry, camera, engine, route checks and console share this surface.
+        routeTerrain=active.heights;
+        runtimeRegion.terrainRevision=routeTerrain.terrainRevision;
+        setTerrainProvider(routeTerrain);
+      } catch(error) {
+        if (!disposed) {
+          setTerrainNote(`Terrain unavailable: ${String(error)}`);
+          setNotice({level:'danger',title:'TERRAIN UNAVAILABLE',message:String(error)});
         }
+        return;
       }
       const s = Math.max(1, Math.ceil((grid.n - 1) / (MAX_SIDE - 1)));
       const m = Math.floor((grid.n - 1) / s) + 1;
@@ -658,7 +655,7 @@ export function Preview() {
       // Sun shadows on the ground (base, rocks, tools, hands)
       shadows = createSunShadows(renderer, sunLight, geo, m - 1, size);
       scene.add(shadows.catcher);
-      setTerrainNote(`Terrain: ${grid.cell} m grid, heights ${lo.toFixed(0)} to ${hi.toFixed(0)} m · sample route with ${STOPS.length} objectives`);
+      setTerrainNote(`Terrain: ${grid.cell} m grid, heights ${lo.toFixed(0)} to ${hi.toFixed(0)} m · demo-shaped HiRISE-derived terrain · ${STOPS.length} nearby objectives`);
       let demoTaskIndex = -1;
       if (DEMO === 'base') {
         // ?demo=base: stand out on the plain and look back at the base
@@ -1095,9 +1092,7 @@ export function Preview() {
         ? { level: 'info', title: interaction.title, message: `${interaction.phase}… ${interaction.pct}%` }
         : interaction.kind === 'stored'
           ? { level: 'info', title: interaction.title, message: interaction.text }
-          : fogWarn
-            ? { level: 'warning', title: 'VISOR FOGGING', message: 'Slow down to let it clear' }
-            : notice;
+          : notice;
 
   // Objective lines: done ones show the time taken, the current one counts down (red once over), the rest show
   // their budget. RETURN is the total time left to get back to base.
@@ -1162,12 +1157,14 @@ export function Preview() {
         interiorRef={interiorRef}
         breathRef={breathRef}
         fogRef={fogRef}
+        status={fogWarn ? {title:'VISOR FOGGING',message:'Slow down to clear it'} : null}
       />
       </div>
       {mode === 'eva' && <div style={{position:'absolute',left:16,bottom:12,zIndex:20,color:'#e8edf0',background:'#121820cc',padding:8,fontSize:12}} aria-label="EVA physics telemetry">
         <div>{runtimeSnapshot?.physics?.emergencyTest ? 'TEST: 2 g EMERGENCY · ' : ''}ENGINEERING SCENARIO · {runtimeSnapshot?.mission.status ?? 'loading'} · {runtimeSnapshot?.paused ? 'PAUSED' : runtimeSnapshot?.physics?.activity}</div>
         <div>O₂ {runtimeSnapshot?.resources.oxygenGrams?.toFixed(3)} / 750 g · {runtimeSnapshot?.physics?.oxygenRateGramsPerHour.toFixed(2)} g/h · {runtimeSnapshot?.physics?.metabolicPowerWatts.toFixed(1)} W</div>
         <div>Elapsed {runtimeSnapshot?.simTimeSeconds.toFixed(1)} s · X {runtimeSnapshot?.player.position.x.toFixed(2)} · Z {runtimeSnapshot?.player.position.z.toFixed(2)} m · TEMP UNKNOWN</div>
+        <div>Terrain: demo-shaped HiRISE-derived</div>
         <button onClick={()=>{const e=runtimeRef.current;if(!e)return;e.dispatch({type:e.getSnapshot().paused?'resume':'pause'});runtimePausedRef.current=e.getSnapshot().paused;if(runtimePausedRef.current)document.exitPointerLock();setRuntimeSnapshot(e.getSnapshot());}}>{runtimeSnapshot?.paused?'Resume':'Pause'}</button>
         <button onClick={()=>{if(window.location.search)window.location.replace(window.location.pathname+window.location.hash);else window.location.reload();}}>Reset to base</button> <a href="#raw">RAW diagnostics</a>
       </div>}

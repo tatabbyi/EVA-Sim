@@ -60,25 +60,43 @@ export interface TerrainPreset {
   banding?: number; // 0 smooth blend between colours, 1 hard steps (one colour per minor contour)
   minor?: number; // contour spacing, m (default 1)
   major?: number; // heavier contour every this many m (default 5)
+  /** 'slope': colour shows how steep the ground is (SLOPE_CLASSES), not its height. */
+  colorBy?: 'height' | 'slope';
 }
+
+/** Walkability by slope: what each ground colour means. Easy ground (most of it: bare, under 8°) keeps the natural
+ *  Mars colour, so colour only shows where the ground gets harder: peach, apricot, coral, then rose red. Over 24° is
+ *  a visual tint threshold, not the physical walking limit. The engine profile controls directional slope validation.
+ *  On the plan map, easy ground is plain paper (MAP_BARE) instead of brown. */
+export const SLOPE_CLASSES = [
+  { colour: '#b8875f', upTo: 8, label: 'Easy' }, // natural ground (butterscotch, like Perseverance's Jezero photos)
+  { colour: '#f4b98f', upTo: 15, label: 'Gentle' }, // peach
+  { colour: '#f29a66', upTo: 20, label: 'Moderate' }, // apricot
+  { colour: '#e9705a', upTo: 24, label: 'Steep' }, // coral
+  { colour: '#d8465c', upTo: 90, label: 'Very steep' }, // rose red, striped
+] as const;
+export const MAP_BARE = '#ece4d8';
 
 export const terrainPresets = {
   muted: {
-    // Muted sand, tan, terracotta, clay red and teal: one colour per 50 cm of height, nearly stepped, with a blue
-    // contour line at every change, so even the gentle plain shows its topology at a glance.
-    label: 'Muted topology',
-    ramp: ['#c8a669', '#c7926a', '#c37861', '#c26860', '#548278'],
-    cycle: 2.5,
+    // Walkability: colour by slope (SLOPE_CLASSES): the ground stays natural Mars, and the visor lays peach, apricot,
+    // coral and striped rose red over the slopes (warm, no yellow: yellow turned khaki in the orange haze). Height is in the blue
+    // contour lines (every 2 m, bolder every 10 m).
+    label: 'Slope tint (visual)',
+    ramp: ['#b8875f', '#f4b98f', '#f29a66', '#e9705a', '#d8465c'],
+    cycle: 0,
     line: '#6fe3ff',
     lineStrength: 0.3,
-    banding: 0.7,
-    minor: 0.5,
-    major: 2.5,
+    banding: 0,
+    minor: 2,
+    major: 10,
+    colorBy: 'slope',
   },
   realistic: {
     label: 'Realistic (AR contours)',
-    // true-colour Mars ground, low to high, over the whole height range; contours are the visor's cyan AR overlay
-    ramp: ['#5f4232', '#6e4c38', '#7e573f', '#8c6248', '#9a6d51', '#a9795b'],
+    // true-colour Mars ground, low to high, over the whole height range: the light butterscotch tan of
+    // Perseverance's Jezero photos (it was a darker, muddier brown); contours are the visor's cyan AR overlay
+    ramp: ['#9a7050', '#a57a58', '#af8360', '#b8875f', '#c09168', '#c99b72'],
     cycle: 0,
     line: '#6fe3ff',
     lineStrength: 0.55,

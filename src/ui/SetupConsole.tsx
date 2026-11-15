@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { sampleBilinear, type Grid } from '../shared/grids';
 import type { XZ } from '../shared/coords';
+import { MAP_BARE, SLOPE_CLASSES } from './palette';
 import './SetupConsole.css';
 
 export interface SetupMission {
@@ -46,7 +47,6 @@ export interface SetupConsoleProps {
 }
 
 const MAP_W = 1400, MAP_H = 900; // map drawing size; scaled to fit, cropping the edges like "cover"
-const LOW_TO_HIGH = ['#c8a669', '#c7926a', '#c37861', '#c26860']; // sand, tan, terracotta, clay red
 
 function hexRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -118,24 +118,35 @@ function drawMap(canvas: HTMLCanvasElement, grid: Grid<Float32Array>, r: ReturnT
     lo = Math.min(lo, h);
     hi = Math.max(hi, h);
   }
-  const ramp = LOW_TO_HIGH.map(hexRgb);
+  // Easy ground is plain paper; the slope colours are laid over it, stronger the steeper, and zigzag-only ground is
+  // striped (the same look as on the ground outside).
+  const paper = hexRgb(MAP_BARE);
+  const classes = SLOPE_CLASSES.map((c) => hexRgb(c.colour));
+  const ease = (e0: number, e1: number, x: number) => Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  const D = 5; // slope measured over about 4 m, like the height data
   const img = ctx.createImageData(MAP_W, MAP_H);
   const lx = -0.55, ly = 0.65, lz = -0.52, ll = Math.hypot(lx, ly, lz); // light from the north-west
   for (let py = 0; py < MAP_H; py++) {
     for (let px = 0; px < MAP_W; px++) {
       const i = py * MAP_W + px;
-      const h = hs[i];
       const hr = hs[py * MAP_W + Math.min(MAP_W - 1, px + 1)], hl = hs[py * MAP_W + Math.max(0, px - 1)];
       const hd = hs[Math.min(MAP_H - 1, py + 1) * MAP_W + px], hu = hs[Math.max(0, py - 1) * MAP_W + px];
       const nx = (-(hr - hl) / (2 * mpp)) * 3, nz = (-(hd - hu) / (2 * mpp)) * 3, nl = Math.hypot(nx, 1, nz);
       const lambert = Math.max(0, (nx * lx + ly + nz * lz) / (nl * ll));
       const shade = 0.62 + 0.5 * lambert;
-      const t = ((h - lo) / Math.max(1e-3, hi - lo)) * (ramp.length - 1);
-      const k = Math.min(ramp.length - 2, Math.floor(t)), f = t - k;
-      const a = ramp[k], b = ramp[k + 1];
-      img.data[i * 4] = Math.min(255, (a[0] + (b[0] - a[0]) * f) * shade);
-      img.data[i * 4 + 1] = Math.min(255, (a[1] + (b[1] - a[1]) * f) * shade);
-      img.data[i * 4 + 2] = Math.min(255, (a[2] + (b[2] - a[2]) * f) * shade);
+      const sx = (hs[py * MAP_W + Math.min(MAP_W - 1, px + D)] - hs[py * MAP_W + Math.max(0, px - D)]) / (2 * D * mpp);
+      const sz = (hs[Math.min(MAP_H - 1, py + D) * MAP_W + px] - hs[Math.max(0, py - D) * MAP_W + px]) / (2 * D * mpp);
+      const deg = (Math.atan(Math.hypot(sx, sz)) * 180) / Math.PI;
+      let t = 0;
+      for (let c = 0; c < classes.length - 1; c++) t += ease(SLOPE_CLASSES[c].upTo - 0.75, SLOPE_CLASSES[c].upTo + 0.75, deg);
+      const k = Math.min(classes.length - 2, Math.floor(t)), f = t - k;
+      const a = classes[k], b = classes[k + 1];
+      const stripe = ease(3.5, 6.5, (px + py) % 12) - ease(9.5, 12, (px + py) % 12) > 0.5 ? 1 : 0.4; // diagonal stripes
+      const alpha = Math.min(1, t) * (0.62 + 0.08 * t) * (1 + (stripe - 1) * Math.max(0, t - 3));
+      for (let ch = 0; ch < 3; ch++) {
+        const tint = a[ch] + (b[ch] - a[ch]) * f;
+        img.data[i * 4 + ch] = Math.min(255, (paper[ch] + (tint - paper[ch]) * alpha) * shade);
+      }
       img.data[i * 4 + 3] = 255;
     }
   }
@@ -322,7 +333,7 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
             </g>
           </svg>
           {!heights && <div className="plan-map-wait">Loading the map…</div>}
-          <div className="plan-map-key">Height lines every {spacing} m · redder is higher</div>
+          <div className="plan-map-key">Height lines every {spacing} m · slope tints are illustrative</div>
         </section>
       </div>
     </div>
