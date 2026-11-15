@@ -1,12 +1,15 @@
 // Written with AI assistance (Codex). Rachel's HUD consumes domain facts without source edits.
 import type { HelmetHudProps } from '../ui/HelmetHud';
 import type { DeepReadonly, EngineSnapshot } from '../core/contracts';
+import {kelvinToCelsius} from '../physics/thermal.ts';
 export function toHelmetHud(snapshot: DeepReadonly<EngineSnapshot>): HelmetHudProps {
   const tasks = snapshot.mission.tasks;
   const {oxygenGrams:oxygen,oxygenCapacityGrams:capacity}=snapshot.resources;
   const known=oxygen !== null && capacity !== null && Number.isFinite(oxygen) && Number.isFinite(capacity) && capacity > 0;
   const fraction=known ? Math.max(0,Math.min(1,oxygen/capacity)) : 0;
   const warning=snapshot.physics?.oxygenWarning;
+  const gasK=snapshot.thermal?.suitGasTemperatureK;
+  const temperatureC=gasK!==undefined&&Number.isFinite(gasK)&&gasK>=0 ? kelvinToCelsius(gasK) : null;
   const alert: HelmetHudProps['alert']=snapshot.mission.status === 'failed'
     ? {level:'danger',title:'MISSION FAILED',message:'Oxygen depleted — 0 g. Reset to restart.'}
     : warning === 'critical' ? {level:'danger',title:'CRITICAL O₂',message:'Critical suit oxygen. Return to shuttle.'}
@@ -15,7 +18,8 @@ export function toHelmetHud(snapshot: DeepReadonly<EngineSnapshot>): HelmetHudPr
   return {
     objectives: { done: tasks.filter(t => t.status === 'complete').length, total: tasks.length, current: tasks.find(t => t.status !== 'complete')?.type ?? 'Demo objectives complete' },
     o2: { label: 'O₂', value:known ? `${(fraction*100).toFixed(2)}%` : 'N/A', fraction, level:warning === 'depleted' || warning === 'critical' ? 'danger' : warning === 'low' ? 'warning' : 'ok' },
-    temperature: { label: 'TEMP', value: 'N/A', fraction: 0 },
+    // 0..50 °C is only the existing bar's display span, not medical/safety limits.
+    temperature: { label: 'TEMP', value:temperatureC===null?'N/A':`${temperatureC.toFixed(1)}°C`,fraction:temperatureC===null?0:Math.max(0,Math.min(1,temperatureC/50)) },
     alert,
   };
 }

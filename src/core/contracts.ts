@@ -1,5 +1,6 @@
 // Written with AI assistance (Codex). Shared RAW contract; metres, seconds, oxygen grams.
 import type { PhysicsTelemetry } from './physics.ts';
+import type { ThermalTelemetry } from '../physics/thermal-scenario.ts';
 export const TASK_IDS = ['abrade-rock', 'take-core', 'sample-depot', 'run-moxie'] as const;
 // Rachel's optional historical preview demos are NOT part of the four science missions.
 export const PREVIEW_ONLY_TASK_IDS = ['laser-scan', 'panorama'] as const;
@@ -12,7 +13,7 @@ export type RouteContextV1 = { contractVersion: 1; regionId: string; frameId: st
 export type Route = { source: 'demo' | 'ml' | 'computed' | 'hybrid' | 'none'; points: XZ[]; context?: RouteContextV1; unavailableReason?: string };
 export type Task = { id: string; type: TaskId; position: XZ; status: 'pending' | 'active' | 'complete' | 'failed' };
 export type Mission = { status?: 'active' | 'failed'; regionId: string; shuttle: XZ; tasks: Task[]; route: Route };
-export type EngineSnapshot = { physics?: PhysicsTelemetry; simTimeSeconds: number; paused: boolean; region: Region; player: { position: XZ; movementMode: 'idle' | 'walk' | 'run' }; mission: Mission; resources: { oxygenGrams: number | null; oxygenCapacityGrams: number | null }; boundaryWarning: boolean };
+export type EngineSnapshot = { physics?: PhysicsTelemetry; thermal?: ThermalTelemetry; simTimeSeconds: number; paused: boolean; region: Region; player: { position: XZ; movementMode: 'idle' | 'walk' | 'run' }; mission: Mission; resources: { oxygenGrams: number | null; oxygenCapacityGrams: number | null }; boundaryWarning: boolean };
 export type SemanticEvent = { type: 'task-started' | 'task-completed'; siteId: string; taskId: TaskId; simTimeSeconds: number } | { type: 'mission-failed'; reason: 'oxygen-depleted'; simTimeSeconds: number } | { type: 'oxygen-warning'; level: 'normal' | 'low' | 'critical' | 'depleted'; simTimeSeconds: number } | { type: 'reset'; simTimeSeconds: 0 } | { type: 'route-changed'; source: Route['source']; simTimeSeconds: number };
 export type Command = { type: 'input'; direction: XZ; run: boolean } | { type: 'pause' | 'resume' | 'reset' } | { type: 'task-start' | 'task-finish'; siteId: string } | { type: 'route'; route: Route };
 export type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
