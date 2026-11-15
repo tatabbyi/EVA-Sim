@@ -36,6 +36,8 @@ export interface BaseInterior {
   collide(p: THREE.Vector3): void;
   /** What you're looking at, within reach: the console screen, the airlock hatch, or nothing. */
   aim(camera: THREE.Camera): 'console' | 'hatch' | null;
+  /** The main screen itself: its frame (centre, facing the seat; +z out of the glass) and size in metres (the VR console sits on it). */
+  screen: { object: THREE.Object3D; width: number; height: number };
   /** Where the main screen is on the page (CSS px) when seen by camera on a widthPx x heightPx page. */
   screenRect(camera: THREE.PerspectiveCamera, widthPx: number, heightPx: number): { left: number; top: number; width: number; height: number };
   update(timeSeconds: number): void;
@@ -359,6 +361,7 @@ export function createBaseInterior(renderer: THREE.WebGLRenderer): BaseInterior 
     start: lookPose(new THREE.Vector3(0, ROOM_EYE, 0.6), new THREE.Vector3(0, 1.35, CONSOLE_Z)),
     fromAirlock: lookPose(new THREE.Vector3(0, ROOM_EYE, HATCH_Z - 1.1), new THREE.Vector3(0, 1.4, 0)),
     seat: { ...lookPose(seatPos, screenCentre), fov: 60 },
+    screen: { object: main, width: SW, height: SH },
     standAtConsole: lookPose(new THREE.Vector3(0, ROOM_EYE, CONSOLE_Z + 2.1), new THREE.Vector3(0, 1.3, CONSOLE_Z)),
     collide(p) {
       for (let k = 0; k < 2; k++) {

@@ -27,7 +27,7 @@ import type { SiteShaping } from '../terrain/siteShaping';
 import { createRoutePath, type RoutePath } from '../terrain/routePath';
 import { createSampleSite } from '../terrain/sampleSite';
 import { abradeTask, coreTask, createDepotTask, createLaserTask, createMoxieTask, createPanoramaTask, type TaskKind, type TaskSite } from '../terrain/tasks';
-import { HelmetHud, type HudAlert, type SuitBar } from '../ui/HelmetHud';
+import { HelmetHud, type HudAlert, type Level, type SuitBar } from '../ui/HelmetHud';
 import { createHudCompass, type CompassTarget } from '../ui/hudCompass';
 import { createHeadSway } from '../ui/headSway';
 import { defaultTerrainPreset, palette, terrainPresets, type TerrainPresetName } from '../ui/palette';
@@ -37,6 +37,9 @@ import type { XZ } from '../shared/coords';
 import { createAdaptiveResolution } from '../shared/perf';
 import { createVisorLens } from '../terrain/visorLens';
 import { createHelmetInterior } from '../terrain/helmetInterior';
+import { addVRButton, createXRRig, type VRHudModel } from '../xr/xrRig';
+import { createVRWorld } from '../xr/vrWorld';
+import { createVRConsole, type VRConsoleModel } from '../xr/vrConsole';
 import { createRockField, type RockField } from '../terrain/rockField';
 import { createSunShadows, type SunShadows } from '../terrain/shadows';
 import { createGlassPath } from '../ui/glassPath';
@@ -204,6 +207,10 @@ export function Preview() {
   // Inside the base walking about, seated at the console, or out on the EVA.
   const modeRef = useRef<'base' | 'console' | 'eva'>(DEMO && DEMO !== 'console' && DEMO !== 'suit' ? 'eva' : 'base');
   const leaveConsoleRef = useRef<() => void>(() => {});
+  // The web HUD's props, handed to the 3D headset HUD (src/xr/vrHud.ts) each render, so both show the same thing.
+  const vrRef = useRef<Omit<VRHudModel, 'outdoors' | 'compass' | 'prompt' | 'tutorial'> | null>(null);
+  // The Setup console's props, for the headset's console on the monitor (src/xr/vrConsole.ts): the same plan.
+  const vrConsoleRef = useRef<Omit<VRConsoleModel, 'options'> | null>(null);
   const launchRef = useRef<() => string | null>(() => null); // go out through the airlock; returns why not, if not
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const beginEvaRef = useRef<(chosen: boolean[], plan: TourPlan | null) => void>(() => {});
@@ -335,6 +342,49 @@ export function Preview() {
     // Mouse look + head sway inside the helmet
     const controls = new PointerLockControls(camera, renderer.domElement);
     controls.pointerSpeed = 1.8; // snappier mouse look
+    // Headset (WebXR, src/xr/xrRig.ts): controllers stand in for the keyboard and mouse; the A/X button or trigger is E.
+    const xr = createXRRig(renderer, {
+      onAction: () => {
+        for (const type of ['keydown', 'keyup'] as const) window.dispatchEvent(new KeyboardEvent(type, { key: 'e', code: 'KeyE' }));
+      },
+      onJump: () => jump(),
+      onStart: () => {
+        if (modeRef.current === 'console') {
+          leaveConsole(); // the desktop Setup screen is a page overlay: the headset gets its own on the monitor
+          openVRConsole(true);
+        }
+        audio.start();
+        if (modeRef.current === 'eva') {
+          runtimeEngine?.resume();
+          runtimePausedRef.current = false;
+        }
+      },
+      onEnd: () => {
+        openVRConsole(false);
+        vrWorld.detach();
+      },
+    });
+    // What the desktop draws on the page, in 3D for the headset (src/xr/vrWorld.ts, src/xr/vrConsole.ts).
+    const vrWorld = createVRWorld(interior.vrKit());
+    const vrConsole = createVRConsole(room.screen, {
+      toggle: (i) => setChosen((prev) => prev.map((c, k) => (k === i ? !c : c))), // the desktop console's toggle
+      close: () => openVRConsole(false),
+      option: (o) => {
+        if (o === 'outline') setOutline(outline === 'world' ? 'glass' : 'world');
+        else if (o === 'topology') setTopology(!topologyOn);
+        else audio.setMuted(!audio.muted);
+      },
+    });
+    const openVRConsole = (on: boolean) => {
+      vrConsole.show(on);
+      xr.setPointable(on ? vrConsole : null);
+    };
+    let vrButton: HTMLElement | null = null;
+    void addVRButton(renderer, rootRef.current ?? root).then((b) => {
+      if (disposed) b?.remove();
+      else vrButton = b;
+    });
+    const looking = () => controls.isLocked || xr.presenting || !!touchControls; // mouse captured, in the headset, or a phone
     const sway = createHeadSway(swayRef.current ?? root);
     let touchControls: TouchControls | null = null;
     // Sit down at the console (the view eases into the seat, then the Setup screen comes up) and stand up again.
@@ -436,13 +486,14 @@ export function Preview() {
     // Jumping in Mars gravity (3.71 m/s²): about 0.8 m high and well over a second in the air.
     const JUMP_SPEED = 3.2, MARS_G = 3.71; // about 1.4 m high, 1.7 s in the air
     let vy = 0, airborne = false;
-    let devTools = false; // Look panel + test label, hidden unless you press the backtick key
-    const startJump = () => {
-      if (modeRef.current !== 'eva' || airborne || active >= 0) return;
-      vy = JUMP_SPEED;
-      airborne = true;
-      sway.look(0, 22);
+    const jump = () => {
+      if (modeRef.current === 'eva' && !airborne && active < 0) {
+        vy = JUMP_SPEED;
+        airborne = true;
+        sway.look(0, 22); // the helmet lurches as you push off
+      }
     };
+    let devTools = false; // Look panel + test label, hidden unless you press the backtick key
     const onKeyDown = (e: KeyboardEvent) => {
       keys.add(e.code);
       if (e.code === 'Backquote') {
@@ -454,7 +505,8 @@ export function Preview() {
       }
       if (e.code === 'KeyM') audio.setMuted(!audio.muted);
       if (modeRef.current === 'console' && e.code === 'Escape') leaveConsole();
-      if (modeRef.current === 'base' && e.code === 'KeyE' && controls.isLocked && room.aim(camera) === 'hatch') {
+      if (modeRef.current === 'base' && e.code === 'KeyE' && xr.presenting && !vrConsole.open && room.aim(camera) === 'console') openVRConsole(true);
+      if (modeRef.current === 'base' && e.code === 'KeyE' && looking() && room.aim(camera) === 'hatch') {
         const why = launchRef.current(); // suit up and go out, if there is a plan
         if (why) {
           lastPrompt = why;
@@ -466,11 +518,12 @@ export function Preview() {
       if (e.code === 'KeyT' && modeRef.current === 'eva') setTopology(!topologyOn);
       if (e.code === 'Space') {
         e.preventDefault(); // don't scroll the page
-        startJump();
+        jump();
       }
     };
     const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
     const onBlur = () => {
+      if (xr.presenting) return; // entering the headset can blur the page: keep going
       keys.clear();
       if (modeRef.current === 'eva') {
         runtimeEngine?.pause();
@@ -495,6 +548,7 @@ export function Preview() {
           }
         } else if (modeRef.current === 'eva') touchInteractRef.current();
       },
+      onJump: () => jump(),
       onPause: () => {
         if (!runtimeEngine || modeRef.current !== 'eva') return;
         if (runtimeEngine.getSnapshot().paused) runtimeEngine.resume();
@@ -591,6 +645,7 @@ export function Preview() {
       route = createRoutePath(pts, groundAt);
       scene.add(route.group);
       glass.setRoute(pts.map((p) => new THREE.Vector3(p.x, 0, p.z)), groundAt);
+      vrWorld.setRoute(pts, groundAt);
       guidePoints = routePoints;
     };
     // Solid things cast sun shadows (glowing or see-through ones don't).
@@ -666,13 +721,14 @@ export function Preview() {
           if (!runtimeEngine || !runtimeClock || modeRef.current !== 'eva') return;
           camera.getWorldDirection(intent);
           const length = Math.hypot(intent.x, intent.z) || 1;
-          const fwd = Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + (touchControls?.forward ?? 0);
-          const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + (touchControls?.right ?? 0);
-          const enabled = (controls.isLocked || !!touchControls) && !runtimeEngine.getSnapshot().paused && active < 0;
+          // Keyboard, the headset's left stick, or the phone's joystick.
+          const fwd = Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + xr.input.forward + (touchControls?.forward ?? 0);
+          const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + xr.input.side + (touchControls?.right ?? 0);
+          const enabled = looking() && !runtimeEngine.getSnapshot().paused && active < 0;
           runtimeEngine.dispatch({
             type: 'input',
             direction: enabled ? { x: (fwd * intent.x - side * intent.z) / length, z: (fwd * intent.z + side * intent.x) / length } : { x: 0, z: 0 },
-            run: keys.has('ShiftLeft') || keys.has('ShiftRight') || !!touchControls?.running,
+            run: keys.has('ShiftLeft') || keys.has('ShiftRight') || xr.input.run || !!touchControls?.running,
           });
           // Fed in steps of at most 0.1 s: the fixed clock treats a bigger jump as a pause and skips it, which would
           // make fast-forward stall on a slow tick.
@@ -1058,19 +1114,37 @@ export function Preview() {
     const marker = new THREE.Vector3();
     const lookDir = new THREE.Vector3();
     let fpsFrames = 0, fpsTime = 0;
+    // Headset HUD (src/xr/vrHud.ts): the web HUD's props, plus the compass from the render loop and the base prompt.
+    let vrCompass: VRHudModel['compass'] = null;
+    const vrHud = (): VRHudModel => {
+      const outdoors = modeRef.current === 'eva', web = vrRef.current;
+      const prompt = outdoors ? null : vrConsole.open ? 'Point at the screen · A or trigger to click' : lastPrompt.replace(/^(E|Click|USE) ·/, 'A ·') || null;
+      const empty = { label: '', value: '', fraction: 0 };
+      return { objectives: { done: 0, total: 0 }, alert: null, o2: empty, temperature: empty, ...web, outdoors, compass: outdoors ? vrCompass : null, prompt };
+    };
+    // Desktop: through the visor lens (a post-process). Headset: straight to the eyes (post-processing breaks WebXR).
+    const draw = (scn: THREE.Scene, eye: number) => {
+      if (xr.presenting) {
+        vrWorld.place(xr.head, scn);
+        xr.render(scn, camera, eye, vrHud());
+      }
+      else if (scn === scene) lens.render(scene, camera);
+      else renderer.render(scn, camera);
+    };
     renderer.setAnimationLoop((ms: number) => {
       const rawDt = (ms - last) / 1000;
       const realDt = Math.min(rawDt, 0.1);
+      xr.update(realDt);
       touchControls?.setMode(modeRef.current);
       touchControls?.setPaused(runtimePausedRef.current);
-      const speed = modeRef.current === 'eva' && keys.has('KeyF') ? FAST_FORWARD : 1;
+      const speed = modeRef.current === 'eva' && (keys.has('KeyF') || xr.input.fast) ? FAST_FORWARD : 1;
       if (speed !== speedRef.current) {
         speedRef.current = speed;
         setFast(speed > 1);
       }
       const dt = realDt * speed; // inside the base; outdoors the sim step comes from the physics engine's clock
       last = ms;
-      if (res.frame(rawDt)) sky.setPixelRatio(res.pixelRatio);
+      if (!xr.presenting && res.frame(rawDt)) sky.setPixelRatio(res.pixelRatio); // the headset sets its own resolution
       fpsFrames++;
       fpsTime += rawDt;
       if (fpsTime >= 1 && fpsRef.current) {
@@ -1085,20 +1159,21 @@ export function Preview() {
       if (modeRef.current !== 'eva') {
         const w = host.clientWidth, h = host.clientHeight;
         if (modeRef.current === 'base') {
-          const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + (touchControls?.forward ?? 0);
-          const side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (touchControls?.right ?? 0);
-          if ((controls.isLocked || !!touchControls) && (fwd || side)) {
+          const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + xr.input.forward + (touchControls?.forward ?? 0);
+          const side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + xr.input.side + (touchControls?.right ?? 0);
+          if (looking() && (fwd || side)) {
             const step = (1.5 * dt) / Math.hypot(fwd, side); // an indoor walk
             controls.moveForward(fwd * step);
             controls.moveRight(side * step);
           }
           room.collide(camera.position);
           camera.position.y = ROOM_EYE;
-          const looking = (controls.isLocked || !!touchControls) ? room.aim(camera) : null;
+          const aimed = looking() ? room.aim(camera) : null;
           const prompt = touchControls
-            ? looking === 'console' ? 'USE · open mission plan' : looking === 'hatch' ? 'USE · suit up and go out' : 'Drag to look · move with joystick'
-            : !controls.isLocked ? 'Click to look around · WASD to walk'
-            : looking === 'console' ? 'Click · use the console' : looking === 'hatch' ? 'E · suit up and go out' : '';
+            ? aimed === 'console' ? 'USE · open mission plan' : aimed === 'hatch' ? 'USE · suit up and go out' : 'Drag to look · move with joystick'
+            : !looking()
+              ? 'Click to look around · WASD to walk'
+              : aimed === 'console' ? 'Click · use the console' : aimed === 'hatch' ? 'E · suit up and go out' : '';
           if (prompt !== lastPrompt && time > promptHoldUntil) {
             lastPrompt = prompt;
             setBasePrompt(prompt);
@@ -1124,7 +1199,14 @@ export function Preview() {
           }
         }
         room.update(time);
-        renderer.render(room.scene, camera);
+        if (xr.presenting) {
+          // Headset: the console on the monitor (closes when you walk away), and the aiming dot.
+          if (vrConsole.open && (modeRef.current !== 'base' || camera.position.distanceTo(room.standAtConsole.position) > 2.5)) openVRConsole(false);
+          const plan = vrConsoleRef.current;
+          if (vrConsole.open && plan) vrConsole.update({ ...plan, options: { outline, topology: topologyOn, sound: !audio.muted } });
+          vrWorld.update({ outdoors: false, fog: 0, reticle: !vrConsole.open, target: null, glass: false, me: camera.position, dt: realDt }, renderer.xr.getBaseLayer() as XRWebGLLayer | null);
+        }
+        draw(room.scene, ROOM_EYE);
         return;
       }
 
@@ -1133,7 +1215,7 @@ export function Preview() {
       const state = runtimeEngine?.getSnapshot();
       if (!state?.physics) {
         // No engine yet (the planner is still preparing) or it couldn't start (replaceRuntime shows why): just draw.
-        lens.render(scene, camera);
+        draw(scene, EYE);
         return;
       }
       const failed = state.mission.status === 'failed';
@@ -1279,10 +1361,21 @@ export function Preview() {
         if (next) marks.push({ kind: 'objective', bearing: bearingTo(next.anchor), label: `${Math.round(Math.hypot(next.anchor.x - cx, next.anchor.z - cz))} M` });
         if (base) marks.push({ kind: 'base', bearing: bearingTo(base.door) });
         compass.update(Math.atan2(lookDir.x, -lookDir.z), marks);
+        vrCompass = { heading: Math.atan2(lookDir.x, -lookDir.z), targets: marks }; // the headset HUD's compass too
       }
       // AR objective marker: projected onto the glass over the next objective (or the airlock on the way home)
       const targetEl = targetRef.current;
-      if (targetEl) {
+      let vrTarget: { at: THREE.Vector3; label: string } | null = null;
+      {
+        const ni = homeBound ? -1 : nextObjective();
+        const next = ni >= 0 ? tasks[ni] : null;
+        const pos = next ? next.anchor : base ? base.door : null;
+        if (pos && active < 0) {
+          const dist = Math.round(Math.hypot(pos.x - camera.position.x, pos.z - camera.position.z));
+          vrTarget = { at: pos, label: `${next ? next.title.toUpperCase() : 'BASE AIRLOCK'} · ${dist} M` }; // the same marker in the headset
+        }
+      }
+      if (targetEl && !xr.presenting) {
         const ni = homeBound ? -1 : nextObjective();
         const next = ni >= 0 ? tasks[ni] : null;
         const pos = next ? next.anchor : base ? base.door : null;
@@ -1347,6 +1440,7 @@ export function Preview() {
       if (breathPhase >= 1) {
         breathPhase -= 1;
         audio.breath(Math.max(effort / 2, fog));
+        if (!reducedMotion) vrWorld.breathe(Math.max(effort / 2, fog));
         if (!reducedMotion)
           breathRef.current?.animate(
             [
@@ -1378,11 +1472,16 @@ export function Preview() {
 
       // Path outline: 3D arrows in world mode (hidden while you work), or drawn on the glass.
       if (route) route.group.visible = outline === 'world' && active < 0;
-      if (outline === 'glass') glass.update(camera, lens.toScreen, host.clientWidth, host.clientHeight);
+      if (outline === 'glass' && !xr.presenting) glass.update(camera, lens.toScreen, host.clientWidth, host.clientHeight);
+      if (xr.presenting)
+        vrWorld.update(
+          { outdoors: true, fog, reticle: false, target: vrTarget, glass: outline === 'glass' && active < 0, me: camera.position, dt: realDt },
+          renderer.xr.getBaseLayer() as XRWebGLLayer | null,
+        );
       rocks?.update(camera.position.x, camera.position.z);
       shadows?.update(camera.position, u.uSunDir.value);
 
-      lens.render(scene, camera);
+      draw(scene, EYE);
       interior.render(); // only redraws when the helmet changes size
     });
 
@@ -1425,6 +1524,10 @@ export function Preview() {
       terrain?.geometry.dispose();
       material.dispose();
       lens.dispose();
+      vrConsole.dispose();
+      vrWorld.dispose();
+      xr.dispose();
+      vrButton?.remove();
       compass.element.remove();
       envMap.dispose();
       interior.dispose();
@@ -1482,6 +1585,17 @@ export function Preview() {
   if (headingHome) items.push({ title: 'Return to base', time: clock(secondsLeft), state: 'current' });
   const listTotal = objTitles.filter((_, i) => chosen[i]).length;
   const listDone = objTitles.filter((_, i) => chosen[i] && objDone[i]).length;
+  const hudObjectives = {
+    done: listDone,
+    total: listTotal,
+    items,
+    returnTime: clock(secondsLeft),
+    returnLevel: (secondsLeft < 60 ? 'danger' : secondsLeft < 300 ? 'warning' : 'ok') as Level,
+  };
+  const hudO2 = physicalHud?.o2 ?? { label: 'O₂', value: 'N/A', fraction: 0 };
+  const hudStatus = fogWarn ? { title: 'VISOR FOGGING', message: 'Slow down to clear it' } : null;
+  // The same props drive the 3D HUD in the headset (src/xr/vrHud.ts).
+  vrRef.current = { objectives: hudObjectives, alert, o2: hudO2, temperature: tempBar(sample.tempC), status: hudStatus, fastForward: fast ? FAST_FORWARD : null };
 
   // ---- the Setup console: missions with their numbers, and the plan's totals. The route is Nanda's planner (cheapest
   // visiting order, weaving round the hills); oxygen and time come from Alex's physics along that route (grams).
@@ -1530,6 +1644,7 @@ export function Preview() {
     : !tour ? 'No walkable route for this plan'
     : planError ? planError
     : !planFits ? 'The plan does not fit: check O₂ and time at the console' : null;
+  vrConsoleRef.current = { missions, chosen: chosen.map((c, i) => c && !objDone[i]), levels, heights: heightsLoaded, route: setupRoute, routeTo, base: door, ready: !launchWhy, why: launchWhy };
   const beginEva = () => {
     setSecondsLeft(EVA_MINUTES * 60);
     setObjSpent((prev) => prev.map((v, i) => (objDone[i] ? v : 0)));
@@ -1552,23 +1667,17 @@ export function Preview() {
       <div className={mode === 'eva' ? undefined : 'preview-hidden'}>
       <div ref={glassRef} className="preview-glass" />
       <HelmetHud
-        objectives={{
-          done: listDone,
-          total: listTotal,
-          items,
-          returnTime: clock(secondsLeft),
-          returnLevel: secondsLeft < 60 ? 'danger' : secondsLeft < 300 ? 'warning' : 'ok',
-        }}
+        objectives={hudObjectives}
         alert={alert}
-        o2={physicalHud?.o2 ?? { label: 'O₂', value: 'N/A', fraction: 0 }}
-        temperature={physicalHud?.temperature ?? tempBar(sample.tempC)}
+        o2={hudO2}
+        temperature={tempBar(sample.tempC)}
         swayTargetRef={swayRef}
         sheenRef={sheenRef}
         targetRef={targetRef}
         interiorRef={interiorRef}
         breathRef={breathRef}
         fogRef={fogRef}
-        status={fogWarn ? { title: 'VISOR FOGGING', message: 'Slow down to clear it' } : null}
+        status={hudStatus}
         fastForward={fast ? FAST_FORWARD : null}
         compassRef={compassRef}
       />

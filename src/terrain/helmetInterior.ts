@@ -11,6 +11,9 @@ import { createFabricTexture, createNoiseTexture } from './noiseTexture';
 export interface HelmetInterior {
   /** Redraws only if the host changed size; cheap to call every frame. */
   render(): void;
+  /** A copy of the hardware and neck ring for the headset (src/xr/vrWorld.ts): same models, in head space (eye at the
+   *  origin, looking down -z), with its own small warm light. Shares geometry and materials with this one. */
+  vrKit(): THREE.Group;
   dispose(): void;
 }
 
@@ -114,6 +117,13 @@ export function createHelmetInterior(host: HTMLElement, fovDeg = 80): HelmetInte
   let lastW = 0, lastH = 0;
 
   return {
+    vrKit() {
+      const g = new THREE.Group();
+      const light = new THREE.PointLight('#fff4e6', 0.8, 0.9); // inside the helmet only: fades out within 0.9 m
+      light.position.set(0, 0.1, 0);
+      g.add(kit.clone(), ring.clone(), light);
+      return g;
+    },
     render() {
       // The slot reaches past the helmet layer (HelmetHud.css .hud-interior), so when you look down or to the side
       // and the helmet slides, the hardware never ends at an edge. The view stays set up for the helmet layer itself,
