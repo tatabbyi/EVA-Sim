@@ -1,9 +1,4 @@
 // Written with AI assistance (Codex). Native host; no renderer IPC or Node access.
-if (typeof require('electron') === 'string') {
-  // Started as plain Node: ELECTRON_RUN_AS_NODE is set (VS Code sets it for its extensions and tasks).
-  console.error('EVA RAW: Electron is running as plain Node because ELECTRON_RUN_AS_NODE is set. Unset it and try again, e.g. `env -u ELECTRON_RUN_AS_NODE npm run start:electron`.');
-  process.exit(1);
-}
 const { app, BrowserWindow, protocol, session } = require('electron');
 const { resolve, sep } = require('node:path');
 const { readFile } = require('node:fs/promises');
@@ -40,9 +35,7 @@ app.whenReady().then(async () => {
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(origin + '/')) event.preventDefault(); });
     win.webContents.on('will-redirect', event => event.preventDefault());
-    // Opens the EVA sim (#preview). --raw opens the RAW demo page; the RAW smoke test needs it too.
-    const raw = process.argv.includes('--raw') || (process.argv.includes('--smoke') && !process.argv.includes('--smoke-preview'));
-    win.loadURL(origin + '/index.html' + (raw ? '' : '#preview'));
+    win.loadURL(origin + '/index.html');
     if (process.argv.includes('--smoke')) require('./smoke.cjs')(win, app);
   };
   createWindow();

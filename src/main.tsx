@@ -23,7 +23,7 @@ function Root() {
   const [problem] = useState(webglProblem);
   if (problem) return <StartupError title="Can’t start the 3D view" detail={problem} webgl />;
   // A crash while starting shows what went wrong (keyed by page, so switching pages tries again).
-  return <ErrorScreen key={hash}>{hash === '#preview' ? <Preview /> : <App />}</ErrorScreen>;
+  return <ErrorScreen key={hash}>{hash === '#raw' ? <App /> : <Preview />}</ErrorScreen>;
 }
 
 createRoot(document.getElementById('root')!).render(

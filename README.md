@@ -38,3 +38,16 @@ Parts of this project were written with AI assistance (Claude). Files are marked
 ## Licence
 
 GPL-3.0. NASA data credits are listed in `docs/sources.md`.
+
+## RAW desktop v0.1
+
+`npm ci` then `npm run dev:electron` starts the real app. `npm run dist:linux`
+builds an offline AppImage; `npm run dist:win` builds an unsigned NSIS installer.
+See [RAW engine contracts and verification](docs/RAW-ENGINE-V01.md) for controls,
+team integration examples, native Windows verification gaps and test commands.
+RAW implementation used AI assistance (Codex); new source files are marked.
+
+## Team integration and AI coding agents
+
+**Before working on gameplay or shared APIs**, read the [team integration contracts](docs/integration/README.md) and [AI-agent handoff guide](docs/integration/AI-AGENT-HANDOFF.md). Rachel's visuals, Nanda's offline route planner, and Victor's terrain provider have separate [role-specific contracts](docs/integration/README.md). The [actual exported RAW API map](docs/integration/RAW-V01-API-RECONCILIATION.md) distinguishes real TypeScript exports from proposed future interfaces. These are team-review drafts until each owner approves their interface.
+

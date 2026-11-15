@@ -12,7 +12,7 @@
 // ?terrain=real in the address skips the shaping (true-scale terrain).
 
 import type { Grid } from '../shared/grids';
-import type { XZ } from '../sim/pathfind';
+import type { XZ } from '../shared/coords';
 
 export interface SiteShaping {
   /** Where the shaping is centred (the base): it stays put, everything else is drawn in towards it. */

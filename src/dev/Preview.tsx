@@ -1,14 +1,17 @@
 // Written with AI assistance (Claude).
 // Owner: Rachel. Look preview (open the site with #preview): starry sky, rainbow terrain, the path to follow with
 // rock-sample stops, and the helmet HUD with sample values.
-// Click to look, WASD to walk, Shift to run, Space to jump, F to do an objective, E to accept an alert, M to mute,
-// O to switch where the path outline is drawn (in the world or on the glass), Esc to release.
+// Click to look, WASD to walk, Shift to run, Space to jump, E to do an objective or accept an alert, hold F for 2x
+// speed, M to mute, O to switch where the path outline is drawn (in the world or on the glass), Esc to release.
 // Two versions: #preview draws the path as 3D arrows on the ground; ?outline=glass#preview draws it on the visor glass.
 // It starts inside the base, helmet off: walk to the console and click its screen to plan the EVA (Esc to stand up),
 // then E at the airlock hatch suits you up and takes you outside. E at the airlock outside brings you back in.
 // Any ?demo= link skips the base and starts outside.
-// Alex's core now owns EVA movement, route state, and task status; the existing scene remains the renderer.
-// Resource and timing overlays are still preview samples until their physical models are integrated.
+// Outdoors, Alex's physics engine (src/core/physics.ts, src/core/engine.ts) is the authority: it owns where you are,
+// your oxygen in grams (750 g suit), workload, the clock, task status and failure, stepped by its own fixed 60 Hz
+// timer. This scene only reads its snapshots and draws. Nanda's planner (src/sim/) draws the path; the console's
+// oxygen and time estimates use Alex's physics (src/adapters/eva-demo.ts). Body temperature has no approved model:
+// the BODY bar, visor fog and breathing are a visual demo only. Jumping is visual only too (no jump physics).
 // Terrain appears only when the height grid exists in public/grids/. Nothing here is made-up terrain.
 // The stops are sample positions on the real terrain. The path between them is planned from the real heights by
 // src/sim/pathfind.ts (cheapest O2, research/02 + 07) and re-planned from wherever you stand.
@@ -20,7 +23,7 @@ import GUI from 'lil-gui';
 import { createTerrainMaterial, setHeightRange, setTerrainPreset } from '../terrain/material';
 import { createMarsDaySky, createStarrySky } from '../terrain/sky';
 import { createSpaceBase, type SpaceBase } from '../terrain/base';
-import { shapeTerrain, type SiteShaping } from '../terrain/siteShaping';
+import type { SiteShaping } from '../terrain/siteShaping';
 import { createRoutePath, type RoutePath } from '../terrain/routePath';
 import { createSampleSite } from '../terrain/sampleSite';
 import { abradeTask, coreTask, createDepotTask, createLaserTask, createMoxieTask, createPanoramaTask, type TaskKind, type TaskSite } from '../terrain/tasks';
@@ -40,25 +43,23 @@ import { createGlassPath } from '../ui/glassPath';
 import { createSuitAudio, type SuitAudio } from '../audio/suitAudio';
 import type { HudObjective } from '../ui/HelmetHud';
 import { SetupConsole, type SetupLevels, type SetupMission } from '../ui/SetupConsole';
-import { REST_O2_PER_MIN, TASK_O2_PER_MIN, walkCost } from '../ui/setupPlan';
 import { createBaseInterior, ROOM_EYE } from '../terrain/baseInterior';
 import { createEngine, type Engine } from '../core/engine';
-import type { Mission, Region, TaskId } from '../core/contracts';
+import type { DeepReadonly, EngineSnapshot, Mission, Region, TaskId } from '../core/contracts';
+import { estimateEVA } from '../adapters/eva-demo';
+import { gramsPerHour, MARS_EVA_DEMO_PROFILE } from '../core/physics';
+import { toHelmetHud } from '../adapters/hud';
+import { createActiveTerrain } from '../adapters/active-terrain';
 import { createFixedClock } from '../adapters/clock';
 import { applyRouteCandidate } from '../adapters/routes';
-import { createHeightGrid, type HeightProvider } from '../adapters/world';
-import { buildLattice, costFrom, distanceToPath, pathLength, planTour, rankTours, type TourPlan } from '../sim/pathfind';
-import { buildSteps, safestTour, simulate, type Odds } from '../sim/survival';
+import type { HeightProvider } from '../adapters/world';
+import { buildLattice, costFrom, distanceToPath, pathLength, planTour, type TourPlan } from '../sim/pathfind';
 import { createPathPlanner, type PathPlanner } from '../sim/planner';
 import { setCostTerrain, setHomeCost } from '../sim/cost';
 import './Preview.css';
 
 const EYE = 1.7;
 const MAX_SIDE = 1025;
-const O2_CAPACITY = 390;
-// Game speeds, faster than a real suited walk (about 1 m/s) so the demo doesn't drag. The O2 maths uses real speeds.
-const WALK = 2.2; // m/s
-const RUN = 4.6;
 
 // The site: a field of ridges on real Jezero terrain about 2.4 km north-west of Perseverance's landing site, west
 // of the delta front, shaped for the demo (siteShaping.ts, SITE_SHAPING below): its hills drawn twice as close
@@ -85,17 +86,13 @@ const TASK_PLAN: { at: number; kind: TaskKind; offset: number; minutes: number }
   { at: 3, kind: 'depot', offset: 0, minutes: 3 },
   { at: 4, kind: 'moxie', offset: 0, minutes: 4 },
 ];
-const EVA_MINUTES = 90; // total time to be back at base (real EVAs last hours; the site is long and hilly)
+const EVA_MINUTES = 45; // time to be back at base: the scenario planning budget in src/adapters/eva-demo.ts
 const OFF_ROUTE_M = 10; // farther than this from the guide: re-plan from where you stand
 const REPLAN_EVERY_S = 0.5; // how often to check
 /** Plans from any point through objectives `todo` (cheapest order), counting the walk home unless toHome is false. */
 type PlanFrom = (from: XZ, todo: number[], toHome?: boolean) => TourPlan | null;
-/** Survival Odds (src/sim/survival.ts): the safest of the cheapest visiting orders, with its odds. */
-type SafestFrom = (from: XZ, todo: number[]) => { plan: TourPlan; odds: Odds; compared: number } | null;
-const CANDIDATE_ORDERS = 6; // how many of the cheapest visiting orders get 1,000 simulated EVAs each
-const RESERVE_MINUTES = 30; // O2 kept back, as minutes of resting in the suit (meta.json o2.reserveMinutes)
-const BASE_O2_CAPACITY = 3000; // litres the base store holds
-const ISRU_L_PER_MIN = 58 / 60; // the base O2 plant (MOXIE-style ISRU), litres per minute
+/** The site with no shaping (true-scale terrain, for ?terrain=real). */
+const TRUE_SCALE: SiteShaping = { centre: BASE_AT, closer: 1, hills: 1, landforms: 1, padRadius: 0, padBlend: 1 };
 const TASK_TITLES: Record<TaskKind, string> = {
   abrade: 'Abrade a rock', core: 'Take a core', depot: 'Sample depot', moxie: 'Run MOXIE',
   laser: 'Laser-zap a boulder (SuperCam)', panorama: 'Panorama from the marker',
@@ -123,11 +120,28 @@ const PARAMS = new URLSearchParams(window.location.search);
 const DEMO = PARAMS.get('demo');
 // Where the path outline is drawn: 'world' (3D arrows on the ground) or 'glass' (projected onto the visor).
 const OUTLINE_START: 'world' | 'glass' = PARAMS.get('outline') === 'glass' ? 'glass' : 'world';
+/**
+ * Alex's physics estimate (estimateEVA, grams and minutes) along Nanda's route, one straight leg at a time. The route's
+ * own corners are walked as they are: estimateEVA smooths its input into one curve, and on this site that curve cut a
+ * corner of the path diagonally across ground steeper than the physics allows (about 26° for half a metre), which made
+ * a walkable plan look unsafe. Task, reserve and tank figures come from the same function.
+ */
+function estimateAlongRoute(route: XZ[], heightAt: (x: number, z: number) => number | null, bounds: { minX: number; maxX: number; minZ: number; maxZ: number }, taskMinutes: number) {
+  const legs = route.slice(1).flatMap((b, i) => (Math.hypot(b.x - route[i].x, b.z - route[i].z) > 0.01 ? [[route[i], b]] : []));
+  if (!legs.length) throw Error('Invalid plan');
+  const totals = estimateEVA(legs[0], heightAt, bounds, taskMinutes); // the first leg plus the task, reserve and tank
+  for (const leg of legs.slice(1)) {
+    const e = estimateEVA(leg, heightAt, bounds, 0);
+    totals.walkGrams += e.walkGrams;
+    totals.metres += e.metres;
+    totals.minutes += e.minutes;
+  }
+  return totals;
+}
 const clock = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec) % 60).padStart(2, '0')}`;
 
 interface Sample {
-  o2: number;
-  tempC: number;
+  tempC: number; // body temperature: a visual demo, not physics
   done: number;
   cyclone: boolean;
 }
@@ -138,13 +152,9 @@ type Interaction =
   | { kind: 'sampling'; site: number; pct: number; phase: string; title: string }
   | { kind: 'stored'; title: string; text: string };
 
-function o2Bar(litres: number): SuitBar {
-  const f = litres / O2_CAPACITY;
-  return { label: 'O₂', value: `${Math.round(litres)} L`, fraction: f, level: f < 0.25 ? 'danger' : f < 0.4 ? 'warning' : 'ok' };
-}
-
 function tempBar(c: number): SuitBar {
   // Your core body temperature on a 35 to 40 °C scale: warn from 38 °C (or under 36), danger from 39 °C (or under 35.5).
+  // A visual demo (rises when you run, drives the visor fog): the physics has no approved body-temperature model.
   return {
     label: 'BODY',
     value: `${c.toFixed(1)}°C`,
@@ -179,12 +189,11 @@ export function Preview() {
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const beginEvaRef = useRef<(chosen: boolean[], plan: TourPlan | null) => void>(() => {});
   const planRef = useRef<PlanFrom | null>(null); // the path planner, once its fields are ready
-  const safestRef = useRef<SafestFrom | null>(null);
   const straightRef = useRef<(pts: XZ[]) => XZ[]>((p) => p); // straight out of the airlock (set in the scene)
   const enterBaseRef = useRef<() => void>(() => {});
   const evaStartRef = useRef(0);
   const [terrainNote, setTerrainNote] = useState('Loading terrain…');
-  const [sample, setSample] = useState<Sample>({ o2: 280, tempC: 36.8, done: 0, cyclone: false });
+  const [sample, setSample] = useState<Sample>({ tempC: 36.8, done: 0, cyclone: false });
   const [notice, setNotice] = useState<HudAlert | null>(null);
   const [interaction, setInteraction] = useState<Interaction>({ kind: 'none' });
   const [headingHome, setHeadingHome] = useState(false);
@@ -200,11 +209,15 @@ export function Preview() {
   const [fast, setFast] = useState(false);
   const [mode, setMode] = useState(modeRef.current);
   const [basePrompt, setBasePrompt] = useState('');
-  const [chosen, setChosen] = useState<boolean[]>(() => (DEMO ? TASK_PLAN.map(() => true) : twoAtRandom())); // missions picked at the console
+  // Missions picked at the console: exactly two of the four (the brief, and the physics mission's rule).
+  const [chosen, setChosen] = useState<boolean[]>(() => (DEMO ? TASK_PLAN.map((_, i) => i < 2) : twoAtRandom()));
   const [heightsLoaded, setHeightsLoaded] = useState<Grid<Float32Array> | null>(null);
   const [door, setDoor] = useState<XZ>({ x: 0, z: 6.4 });
-  const [baseStore, setBaseStore] = useState(2400); // litres in the base O2 store
-  const [lastEva, setLastEva] = useState({ returned: 212, isru: 96 }); // sample numbers until you've done an EVA
+  // The physics engine's latest snapshot (oxygen grams, workload, mission status) for the HUD and telemetry, and the
+  // shared terrain (the same shaped heights the engine, planner and console use).
+  const [runtimeSnapshot, setRuntimeSnapshot] = useState<DeepReadonly<EngineSnapshot> | null>(null);
+  const runtimeRef = useRef<Engine | null>(null);
+  const [terrainProvider, setTerrainProvider] = useState<HeightProvider | null>(null);
   const [plannerReady, setPlannerReady] = useState(false);
 
   useEffect(() => {
@@ -501,11 +514,14 @@ export function Preview() {
 
     const replaceRuntime = (flags: boolean[], shuttle: XZ, routePoints: XZ[]) => {
       runtimeOffEvents?.();
+      if (runtimeTimer) clearInterval(runtimeTimer);
       runtimeClock?.dispose();
       runtimeEngine?.dispose();
       runtimeOffEvents = null;
+      runtimeTimer = null;
       runtimeClock = null;
       runtimeEngine = null;
+      runtimeRef.current = null;
       const region = runtimeRegion;
       if (!region) return null;
       const distinctRoute = routePoints.filter((p, i) => i === 0 || Math.hypot(p.x - routePoints[i - 1].x, p.z - routePoints[i - 1].z) > 0.001);
@@ -522,17 +538,46 @@ export function Preview() {
         route: { source: 'demo', points: distinctRoute },
       };
       try {
+        if (!routeTerrain) throw Error('Validated terrain unavailable');
+        if (missionTasks.length !== 2) throw Error('Select exactly two valid official objectives');
+        const terrainAt = routeTerrain.heightAt;
+        // Walkable: real terrain, outside the base (the 3 m round the airlock door are open, like the path planner's).
+        const door = base?.door;
         const canOccupy = (p: XZ) => {
-          const height = routeTerrain?.heightAt(p.x, p.z);
-          return height === undefined ? Number.isFinite(groundAt(p.x, p.z)) : height !== null && Number.isFinite(height);
+          const height = terrainAt(p.x, p.z);
+          const inBase = !!base?.keepClear(p.x, p.z, 0) && !(door && Math.hypot(p.x - door.x, p.z - door.z) <= 3);
+          return height !== null && Number.isFinite(height) && !inBase;
         };
-        runtimeEngine = createEngine(
-          region,
-          mission,
-          canOccupy,
-          { walkMetresPerSecond: WALK, runMetresPerSecond: RUN, eyeHeightMetres: EYE },
-        );
+        runtimeEngine = createEngine(region, mission, canOccupy, undefined, {
+          profile: MARS_EVA_DEMO_PROFILE,
+          heightAt: terrainAt,
+          carriedMassKg: 0,
+          ...(PARAMS.get('emergency') === '1' ? { initialOxygenGrams: 2, emergencyTest: true } : {}),
+        });
+        runtimeRef.current = runtimeEngine;
+        previousSimTime = 0;
+        setRuntimeSnapshot(runtimeEngine.getSnapshot());
         runtimeClock = createFixedClock(runtimeEngine);
+        // One fixed physics clock, independent of rendering; the camera only supplies the direction you want to go.
+        // Holding F (demo fast-forward) runs this clock FAST_FORWARD times faster: walking, tasks and oxygen all at 2x.
+        let physicsTime = 0, physicsLast = performance.now() / 1000;
+        runtimeTimer = setInterval(() => {
+          const now = performance.now() / 1000, real = Math.min(0.25, Math.max(0, now - physicsLast));
+          physicsLast = now;
+          if (!runtimeEngine || !runtimeClock || modeRef.current !== 'eva') return;
+          physicsTime += real * speedRef.current;
+          camera.getWorldDirection(intent);
+          const length = Math.hypot(intent.x, intent.z) || 1;
+          const fwd = Number(keys.has('KeyW')) - Number(keys.has('KeyS'));
+          const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
+          const enabled = controls.isLocked && !runtimeEngine.getSnapshot().paused && active < 0;
+          runtimeEngine.dispatch({
+            type: 'input',
+            direction: enabled ? { x: (fwd * intent.x - side * intent.z) / length, z: (fwd * intent.z + side * intent.x) / length } : { x: 0, z: 0 },
+            run: keys.has('ShiftLeft') || keys.has('ShiftRight'),
+          });
+          runtimeClock.tick(physicsTime);
+        }, 1000 / 60);
         runtimeOffEvents = runtimeEngine.onEvent((event) => {
           if (event.type !== 'task-started') return;
           const index = Number(event.siteId.slice('preview-task-'.length));
@@ -547,6 +592,9 @@ export function Preview() {
         return null;
       }
     };
+    const intent = new THREE.Vector3(); // where you want to walk (the physics timer reads the camera's facing)
+    let runtimeTimer: ReturnType<typeof setInterval> | null = null;
+    let previousSimTime = 0;
 
     // Task animation state; the engine owns the authoritative task status.
     let active = -1; // index of the site being sampled
@@ -557,7 +605,6 @@ export function Preview() {
     let near = -1;
     let lastPct = -1;
     const lookTarget = new THREE.Quaternion();
-    const kneelSpot = new THREE.Vector3(); // where you kneel beside the rock while sampling
     let crouch = 0; // 0 standing, 1 kneeling
     const lookMatrix = new THREE.Matrix4();
     const headEuler = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -586,16 +633,10 @@ export function Preview() {
     };
 
     startSampleRef.current = () => {
-      if (active >= 0 || near < 0 || !runtimeEngine) return;
+      if (active >= 0 || near < 0 || !runtimeEngine || runtimeEngine.getSnapshot().mission.status === 'failed') return;
       const task = tasks[near];
       runtimeEngine.dispatch({ type: 'task-start', siteId: engineSiteId(near) });
       if (runtimeEngine.getSnapshot().mission.tasks.find((t) => t.id === engineSiteId(near))?.status !== 'active') return;
-      if (task.kneel) {
-        // Step up to the rock and kneel within arm's reach of it.
-        const r = task.anchor;
-        const dx = camera.position.x - r.x, dz = camera.position.z - r.z, d = Math.hypot(dx, dz) || 1;
-        kneelSpot.set(r.x + (dx / d) * 0.62, 0, r.z + (dz / d) * 0.62);
-      }
       active = near;
       headYaw = headPitch = 0;
       currentRef.current = near; // its clock runs while you do it
@@ -641,7 +682,6 @@ export function Preview() {
       camera.rotateX(-0.05); // 3° down, onto the path
       camera.fov = 80; // helmet on: wide view through the dome
       camera.updateProjectionMatrix();
-      o2Now = O2_CAPACITY;
       fog = 0;
       currentRef.current = active >= 0 ? active : nextObjective();
       modeRef.current = 'eva';
@@ -654,7 +694,7 @@ export function Preview() {
         /* not available */
       }
     };
-    // Back inside: the suit's leftover O2 goes back to the store.
+    // Back inside: the mission results stay; base oxygen storage is not simulated.
     enterBaseRef.current = () => {
       runtimeEngine?.pause();
       runtimePausedRef.current = true;
@@ -667,11 +707,8 @@ export function Preview() {
       camera.fov = 70;
       camera.updateProjectionMatrix();
       lastPrompt = '';
-      const minutes = (performance.now() - evaStartRef.current) / 60000;
-      const back = { returned: Math.round(o2Now), isru: Math.round(ISRU_L_PER_MIN * minutes) };
-      setLastEva(back);
-      setBaseStore((v) => Math.min(BASE_O2_CAPACITY, v + back.returned + back.isru));
-      setChosen(tasks.map((t) => t.state !== 'done')); // what's left to do
+      const left = tasks.flatMap((t, i) => (t.state !== 'done' ? [i] : [])).slice(0, 2);
+      setChosen(TASK_PLAN.map((_, i) => left.includes(i))); // the next two of what's left to do
       setNotice(null);
       setInteraction({ kind: 'none' });
       setSample((p) => ({ ...p, cyclone: false }));
@@ -705,24 +742,19 @@ export function Preview() {
         setTerrainNote('No terrain yet: waiting for public/grids/height_4m.bin (Victor). Sky and HUD only.');
         return;
       }
-      // The demo site's hills, closer and taller (SITE_SHAPING); everything below uses these heights.
-      if (PARAMS.get('terrain') !== 'real') grid = shapeTerrain(grid, SITE_SHAPING);
+      // One shared surface (Alex's active terrain): the demo site's hills, closer and taller (SITE_SHAPING), used by
+      // the 3D ground, the physics, the route checks, the path planner and the console alike.
       if (runtimeRegion) {
         try {
-          const revision = `preview-grid-${grid.n}-${grid.cell}m`;
-          const heightGrid = createHeightGrid(grid.data.slice().buffer as ArrayBuffer, grid.n, grid.cell, runtimeRegion.visibleBounds);
-          runtimeRegion.terrainRevision = revision;
-          routeTerrain = {
-            ...heightGrid,
-            contractVersion: 1,
-            regionId: runtimeRegion.id,
-            frameId: runtimeRegion.frameId,
-            terrainRevision: revision,
-            coverage: 'bilinear-valid-cells',
-            noDataPolicy: 'reject-scene',
-          };
+          const active = await createActiveTerrain(grid, runtimeRegion, PARAMS.get('terrain') === 'real' ? TRUE_SCALE : SITE_SHAPING);
+          if (disposed) return;
+          grid = active.grid;
+          runtimeRegion.terrainRevision = active.heights.terrainRevision;
+          routeTerrain = active.heights;
+          setTerrainProvider(active.heights);
         } catch (error) {
-          console.warn('Core route validation is unavailable for this height grid.', error);
+          setTerrainNote(`Terrain unavailable: ${error instanceof Error ? error.message : String(error)}`);
+          return;
         }
       }
       const s = Math.max(1, Math.ceil((grid.n - 1) / (MAX_SIDE - 1)));
@@ -780,11 +812,7 @@ export function Preview() {
         const [home, ...fields] = await Promise.all([door0, ...STOPS].map((g) => pathPlanner!.field(g)));
         planFrom = (from, todo, toHome = true) => planTour(L, fields, toHome ? home : null, from, todo);
         setHomeCost((x, z) => costFrom(L, home, { x, z }));
-        // Survival Odds: simulate each candidate order 1,000 times with the console's suit and task numbers.
-        const suit = { tankL: O2_CAPACITY, reserveL: RESERVE_MINUTES * REST_O2_PER_MIN, restLPerMin: REST_O2_PER_MIN, limitMin: EVA_MINUTES };
-        const task = (i: number) => ({ minutes: TASK_PLAN[i].minutes, o2PerMin: TASK_O2_PER_MIN[TASK_PLAN[i].kind] });
-        safestRef.current = (from, todo) =>
-          safestTour(rankTours(L, fields, home, from, todo, CANDIDATE_ORDERS), (p) => simulate(buildSteps(p, task, groundAt), suit, (q) => costFrom(L, home, q)));
+        // (Survival Odds, src/sim/survival.ts, are left out until they use the physics' grams.)
       } catch (err) {
         console.warn('Path planner unavailable', err);
       }
@@ -835,8 +863,15 @@ export function Preview() {
         }
       }
       if (modeRef.current === 'eva') {
+        // A demo start: a two-objective physics mission (the one being demonstrated and the next), routed by the planner.
         const shuttle = { x: camera.position.x, z: camera.position.z };
-        const engine = replaceRuntime(TASK_PLAN.map(() => true), shuttle, [shuttle, ...(tour?.points ?? [door0])]);
+        const two = demoTaskIndex >= 0 ? [demoTaskIndex, (demoTaskIndex + 1) % TASK_PLAN.length] : [0, 1];
+        const flags = TASK_PLAN.map((_, i) => two.includes(i));
+        const demoTour = planFrom?.(shuttle, two) ?? null;
+        picked = flags;
+        tasks.forEach((t, i) => (t.group.visible = flags[i]));
+        goal = 2;
+        const engine = replaceRuntime(flags, shuttle, demoTour ? [...demoTour.points, ...demoTour.back.slice(1)] : [shuttle, door0]);
         engine?.resume();
         runtimePausedRef.current = !engine;
         if (engine) guideFrom(shuttle);
@@ -895,16 +930,14 @@ export function Preview() {
     helmet.add(lens.uniforms.uK, 'value', 0, 0.5, 0.01).name('dome curvature');
     helmet.add(lens.uniforms.uCA, 'value', 0, 0.03, 0.001).name('edge colour fringing');
     const h = gui.addFolder('HUD sample values');
-    const hs = { o2: 280, tempOffset: 0, cyclone: false, fog: 0 };
-    h.add(hs, 'o2', 0, O2_CAPACITY, 1).name('set O₂ (L)').onChange((v: number) => (o2Now = v));
+    const hs = { tempOffset: 0, cyclone: false, fog: 0 }; // (oxygen comes from the physics engine)
     h.add(hs, 'fog', 0, 1, 0.05).name('set visor fog').onChange((v: number) => (fog = v));
     h.add(hs, 'tempOffset', -3, 3, 0.1).name('body temp offset (°C)');
     h.add(hs, 'cyclone').name('cyclone alert').onChange((v: boolean) => setSample((p) => ({ ...p, cyclone: v })));
 
     let last = performance.now();
-    let simTime = 0; // mission time, s: runs FAST_FORWARD times faster while F is held
-    let o2Now = 280, lastHud = 0, lastSheen = 0, lastLabel = '';
-    let bodyT = 36.8; // core body temperature, °C
+    let lastHud = 0, lastSheen = 0, lastLabel = '';
+    let bodyT = 36.8; // core body temperature, °C (visual demo)
     let stride = 0, breathPhase = 0, laserClock = 0, lastShot = -1;
     // Visor fog, 0 clear to 1 fogged. Builds while you run (about 11 s to the warning, 20 s to fully fogged);
     // clears slowly while you walk, faster while you work, fastest standing still (about 10 s from fully fogged).
@@ -922,8 +955,7 @@ export function Preview() {
         speedRef.current = speed;
         setFast(speed > 1);
       }
-      const dt = realDt * speed; // everything in the sim steps by this (the look and head sway use realDt)
-      simTime += dt;
+      const dt = realDt * speed; // inside the base; outdoors the sim step comes from the physics engine's clock
       last = ms;
       if (res.frame(rawDt)) sky.setPixelRatio(res.pixelRatio);
       fpsFrames++;
@@ -934,7 +966,7 @@ export function Preview() {
         fpsTime = 0;
       }
       const time = ms / 1000;
-      const gameDt = runtimePausedRef.current ? 0 : dt;
+      let gameDt = runtimePausedRef.current ? 0 : dt; // outdoors: replaced by the physics clock's step below
 
       // Inside the base (helmet off): walk about, or sit at the console with the Setup screen on its monitor.
       if (modeRef.current !== 'eva') {
@@ -982,29 +1014,22 @@ export function Preview() {
         return;
       }
 
-      // Walking (blocked while sampling)
-      const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
-      const side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
-      let moving = active < 0 && (fwd !== 0 || side !== 0);
-      let running = moving && (keys.has('ShiftLeft') || keys.has('ShiftRight'));
-      if (runtimeEngine && runtimeClock) {
-        // Walk the way you face: forward is where the camera looks, flattened onto the ground; right is 90° clockwise.
-        // (camera.rotation.y is not the heading: its angle order wraps once you turn past 90°.)
-        camera.getWorldDirection(lookDir);
-        const fl = Math.hypot(lookDir.x, lookDir.z) || 1, fx = lookDir.x / fl, fz = lookDir.z / fl;
-        const direction = moving ? { x: fwd * fx - side * fz, z: fwd * fz + side * fx } : { x: 0, z: 0 };
-        runtimeEngine.dispatch({ type: 'input', direction, run: running });
-        runtimeClock.tick(simTime); // the engine's fixed steps follow mission time, so walking speeds up too
-        const player = runtimeEngine.getSnapshot().player;
-        camera.position.x = player.position.x;
-        camera.position.z = player.position.z;
-        moving = player.movementMode !== 'idle';
-        running = player.movementMode === 'run';
-      } else if (moving) {
-        const step = ((running ? RUN : WALK) * dt) / Math.hypot(fwd, side);
-        controls.moveForward(fwd * step);
-        controls.moveRight(side * step);
+      // The physics engine is the authority outdoors: the render loop only reads its snapshot (where you are, what
+      // you're doing, the clock, the tasks, failure). It never moves the player or steps the physics itself.
+      const state = runtimeEngine?.getSnapshot();
+      if (!state?.physics) {
+        // No engine yet (the planner is still preparing) or it couldn't start (replaceRuntime shows why): just draw.
+        lens.render(scene, camera);
+        return;
       }
+      const failed = state.mission.status === 'failed';
+      gameDt = state.paused || failed ? 0 : Math.max(0, state.simTimeSeconds - previousSimTime); // 2x while F is held
+      previousSimTime = state.simTimeSeconds;
+      if (failed) audio.setDrill(false);
+      camera.position.x = state.player.position.x;
+      camera.position.z = state.player.position.z;
+      const moving = state.physics.activity === 'walk' || state.physics.activity === 'fast';
+      const running = state.physics.activity === 'fast';
       // Footsteps, heard through the suit
       stride += Math.hypot(camera.position.x - lastStep.x, camera.position.z - lastStep.z);
       lastStep.copy(camera.position);
@@ -1012,23 +1037,11 @@ export function Preview() {
         stride = 0;
         audio.step();
       }
-      // Kneel while sampling: move beside the rock and lower the eye from 1.7 m to about 1.15 m.
+      // Kneel while sampling: lower the eye from 1.7 m to about 1.15 m. Only the height: where you stand (x, z) stays
+      // the physics' position. Jumping (below) is visual only as well: the physics has no jump.
       const ease = Math.min(1, gameDt * 3);
       const kneeling = active >= 0 && tasks[active].kneel;
       crouch += ((kneeling ? 1 : 0) - crouch) * ease;
-      if (kneeling) {
-        const next = {
-          x: camera.position.x + (kneelSpot.x - camera.position.x) * ease,
-          z: camera.position.z + (kneelSpot.z - camera.position.z) * ease,
-        };
-        if (runtimeEngine?.setPosition(next)) {
-          camera.position.x = next.x;
-          camera.position.z = next.z;
-        } else if (!runtimeEngine) {
-          camera.position.x = next.x;
-          camera.position.z = next.z;
-        }
-      }
       const groundY = groundAt(camera.position.x, camera.position.z) + EYE - crouch * (EYE - 1.15);
       if (airborne) {
         vy -= MARS_G * gameDt;
@@ -1045,7 +1058,7 @@ export function Preview() {
       }
 
       // Doing an objective: hold the view on its target (if it has one), report progress, finish
-      if (active >= 0) {
+      if (active >= 0 && !failed && !state.paused) {
         const task = tasks[active];
         if (task.lookAt) {
           lookMatrix.lookAt(camera.position, task.lookAt, THREE.Object3D.DEFAULT_UP);
@@ -1062,10 +1075,11 @@ export function Preview() {
           lastPct = pct;
           setInteraction({ kind: 'sampling', site: active, pct, phase: task.phaseText, title: task.hudTitle });
         }
-        if (task.state === 'done') {
-          const finished = tasks.indexOf(task);
-          runtimeEngine?.dispatch({ type: 'task-finish', siteId: engineSiteId(finished) });
-          const coreCompleted = runtimeEngine?.getSnapshot().mission.tasks.find((t) => t.id === engineSiteId(finished))?.status === 'complete';
+        // Finished only once the engine confirms it (it owns task status): until then the animation just waits.
+        const finished = tasks.indexOf(task);
+        if (task.state === 'done') runtimeEngine?.dispatch({ type: 'task-finish', siteId: engineSiteId(finished) });
+        const coreCompleted = task.state === 'done' && runtimeEngine?.getSnapshot().mission.tasks.find((t) => t.id === engineSiteId(finished))?.status === 'complete';
+        if (coreCompleted) {
           active = -1;
           near = -1;
           levelView(camera.quaternion); // hand back a level view to the mouse look
@@ -1082,7 +1096,7 @@ export function Preview() {
           currentRef.current = homeBound ? -1 : nextObjective(); // next objective's clock starts
           window.setTimeout(() => setInteraction((cur) => (cur.kind === 'stored' ? { kind: 'none' } : cur)), 2200);
         }
-      } else {
+      } else if (!failed && !state.paused) {
         // In range of an objective that hasn't been done?
         let found = -1;
         tasks.forEach((task, i) => {
@@ -1102,17 +1116,20 @@ export function Preview() {
       sway.setPitch(Math.asin(Math.max(-1, Math.min(1, lookDir.y)))); // looking up shows the top of the helmet
       sway.step(realDt, running ? 2 : moving ? 1 : 0);
 
-      // Demo suit readings: O2 drains with effort and refills when you stop (whiteboard demo rule; not the real
-      // consumption model, which is Nanda's). Body temperature: about 36.8 °C at rest, climbing with hard work (running,
-      // and more when the suit falls behind and the visor fogs), cooling back slowly when you rest.
-      const o2Rate = active >= 0 ? -0.6 : running ? -2.4 : moving || airborne ? -0.8 : 1.5; // litres per second
-      o2Now = Math.min(O2_CAPACITY, Math.max(0, o2Now + o2Rate * gameDt));
+      // Oxygen is the physics engine's (grams, read from the snapshot for the HUD). Body temperature is a visual demo
+      // only (no approved model): about 36.8 °C at rest, climbing with hard work (running, and more when the suit falls
+      // behind and the visor fogs), cooling back slowly when you rest.
       const bodyTarget = (running ? 38.6 : moving || airborne ? 37.2 : active >= 0 ? 37.1 : 36.8) + 0.6 * fog;
       bodyT += (bodyTarget - bodyT) * Math.min(1, gameDt / (bodyTarget > bodyT ? 40 : 70)); // heats up faster than it cools
       const tempNow = bodyT + hs.tempOffset;
       if (time - lastHud > 0.2) {
         lastHud = time;
-        setSample((p) => ({ ...p, o2: o2Now, tempC: tempNow }));
+        setSample((p) => ({ ...p, tempC: tempNow }));
+        setRuntimeSnapshot(state);
+        setObjDone((prev) => {
+          const next = TASK_PLAN.map((_, i) => prev[i] || state.mission.tasks.some((t) => t.id === engineSiteId(i) && t.status === 'complete'));
+          return prev.every((v, i) => v === next[i]) ? prev : next;
+        });
       }
       sky.update(camera, time);
       daySky.update(camera);
@@ -1194,7 +1211,7 @@ export function Preview() {
       // fast, so it stays small) and plays the breath and valve sound.
       const effort = running ? 2 : moving || airborne ? 1 : active >= 0 ? 0.6 : 0;
       const fogRate = running ? 0.05 : active >= 0 ? -0.06 : moving || airborne ? -0.015 : -0.1;
-      fog = Math.min(1, Math.max(DEMO === 'fog' ? 0.6 : 0, fog + fogRate * dt));
+      fog = Math.min(1, Math.max(DEMO === 'fog' ? 0.6 : 0, fog + fogRate * gameDt));
       if (Math.abs(fog - fogShown) > 0.004) {
         fogShown = fog;
         const el = fogRef.current;
@@ -1212,7 +1229,7 @@ export function Preview() {
         setFogWarn(false);
       }
       // A fogged-up suit means you're overheating: breathing gets faster and heavier.
-      breathPhase += dt / ((effort >= 2 ? 2.2 : effort >= 1 ? 3.0 : 4.4) * (1 - 0.3 * fog));
+      breathPhase += gameDt / ((effort >= 2 ? 2.2 : effort >= 1 ? 3.0 : 4.4) * (1 - 0.3 * fog));
       if (breathPhase >= 1) {
         breathPhase -= 1;
         audio.breath(Math.max(effort / 2, fog));
@@ -1265,6 +1282,7 @@ export function Preview() {
     return () => {
       disposed = true;
       runtimeOffEvents?.();
+      if (runtimeTimer) clearInterval(runtimeTimer);
       runtimeClock?.dispose();
       runtimeEngine?.dispose();
       ro.disconnect();
@@ -1312,7 +1330,9 @@ export function Preview() {
     },
   };
 
-  const alert: HudAlert | null = sample.cyclone
+  // The physics' own alerts come first: low or critical O2, mission failed, the playable edge (src/adapters/hud.ts).
+  const physicalHud = runtimeSnapshot ? toHelmetHud(runtimeSnapshot) : null;
+  const alert: HudAlert | null = physicalHud?.alert ? physicalHud.alert : sample.cyclone
     ? cycloneAlert
     : interaction.kind === 'prompt'
       ? { level: 'info', title: interaction.title, message: interaction.text, acceptKey: 'E', onAccept: () => startSampleRef.current() }
@@ -1338,8 +1358,8 @@ export function Preview() {
   const listTotal = objTitles.filter((_, i) => chosen[i]).length;
   const listDone = objTitles.filter((_, i) => chosen[i] && objDone[i]).length;
 
-  // ---- the Setup console: missions with their numbers, and the plan's totals (research/02 walking model)
-  const heightAt = useMemo(() => (x: number, z: number) => (heightsLoaded ? sampleBilinear(heightsLoaded, x, z) : 0), [heightsLoaded]);
+  // ---- the Setup console: missions with their numbers, and the plan's totals. The route is Nanda's planner (cheapest
+  // visiting order, weaving round the hills); oxygen and time come from Alex's physics along that route (grams).
   // Distance from the airlock to each objective on its own cheapest path.
   const stopMetres = useMemo(
     () => TASK_PLAN.map((_, i) => pathLength((plannerReady && planRef.current?.(door, [i], false)?.points) || [])),
@@ -1349,53 +1369,40 @@ export function Preview() {
     title: TASK_TITLES[p.kind],
     minutes: p.minutes,
     distance: stopMetres[i],
-    litres: p.minutes * TASK_O2_PER_MIN[p.kind],
+    oxygenGrams: (gramsPerHour(MARS_EVA_DEMO_PROFILE.powerTaskW) * p.minutes) / 60,
     at: STOPS[i],
     done: objDone[i],
   }));
   const planIdx = TASK_PLAN.map((_, i) => i).filter((i) => chosen[i] && !objDone[i]);
   const planKey = planIdx.join(',');
-  // The planned EVA: airlock → picked objectives → airlock, in the visiting order most likely to get you home
-  // (Survival Odds over the cheapest orders; src/sim/survival.ts).
-  const safest = useMemo(
-    () => (plannerReady && planKey ? safestRef.current?.(door, planKey.split(',').map(Number)) ?? null : null),
+  // The planned EVA: airlock → the two picked objectives → airlock, in the cheapest visiting order.
+  const tour = useMemo(
+    () => (plannerReady && planKey ? planRef.current?.(door, planKey.split(',').map(Number)) ?? null : null),
     [plannerReady, door, planKey],
   );
-  const tour = safest?.plan ?? null;
   const setupRoute: XZ[] = useMemo(() => (tour ? straightRef.current([...tour.points, ...tour.back.slice(1)]) : [door]), [tour, door]);
   const routeTo = tour ? setupRoute.length - 1 : -1; // the whole route is the plan
-  const walk = useMemo(() => {
-    if (!heightsLoaded || mode === 'eva') return null;
-    if (!tour) return planKey ? null : { out: walkCost([door], heightAt), back: walkCost([door], heightAt) };
-    return { out: walkCost(tour.points, heightAt), back: walkCost(tour.back, heightAt) };
-  }, [heightsLoaded, mode, tour, planKey, door, heightAt]);
-  let levels: SetupLevels | null = null;
-  if (walk) {
-    const { out, back } = walk;
-    const taskMinutes = planIdx.reduce((a, i) => a + TASK_PLAN[i].minutes, 0);
-    levels = {
-      walkLitres: out.litres + back.litres,
-      taskLitres: planIdx.reduce((a, i) => a + missions[i].litres, 0),
-      reserve: RESERVE_MINUTES * REST_O2_PER_MIN,
-      tank: O2_CAPACITY,
-      baseStore,
-      baseCapacity: BASE_O2_CAPACITY,
-      lastEva,
-      minutes: (out.seconds + back.seconds) / 60 + taskMinutes,
-      evaMinutes: EVA_MINUTES,
-      metres: out.metres + back.metres,
-      odds: safest ? { ...safest.odds, compared: safest.compared } : null,
-    };
-  }
-  const planFits = !!levels && levels.walkLitres + levels.taskLitres + levels.reserve <= levels.tank && levels.minutes <= levels.evaMinutes;
+  // Oxygen (grams) and time from the physics along the planned route (src/adapters/eva-demo.ts estimateEVA).
+  const { levels, planError } = useMemo((): { levels: SetupLevels | null; planError: string | null } => {
+    if (!terrainProvider || !tour || mode === 'eva') return { levels: null, planError: null };
+    try {
+      const b = terrainProvider.bounds;
+      const bounds = { minX: b.minX + 100, maxX: b.maxX - 100, minZ: b.minZ + 100, maxZ: b.maxZ - 100 };
+      const taskMinutes = planIdx.reduce((a, i) => a + TASK_PLAN[i].minutes, 0);
+      return { levels: estimateAlongRoute(setupRoute, terrainProvider.heightAt, bounds, taskMinutes), planError: null };
+    } catch (error) {
+      return { levels: null, planError: error instanceof Error ? error.message : String(error) };
+    }
+  }, [terrainProvider, tour, setupRoute, planKey, mode]);
+  const planFits = !!levels && levels.walkGrams + levels.taskGrams + levels.reserveGrams <= levels.tankGrams && levels.minutes <= levels.evaMinutes;
   const launchWhy = !heightsLoaded
     ? 'Terrain still loading…'
     : !plannerReady ? 'Planning routes…'
-    : !planIdx.length ? 'Plan the EVA at the console first (pick a mission)'
+    : planIdx.length !== 2 ? 'Select exactly TWO objectives at the console'
     : !tour ? 'No walkable route for this plan'
+    : planError ? planError
     : !planFits ? 'The plan does not fit: check O₂ and time at the console' : null;
   const beginEva = () => {
-    setBaseStore((v) => Math.max(0, v - O2_CAPACITY)); // the suit is filled from the store
     setSecondsLeft(EVA_MINUTES * 60);
     setObjSpent((prev) => prev.map((v, i) => (objDone[i] ? v : 0)));
     setCurrentObj(planIdx[0] ?? -1);
@@ -1425,7 +1432,7 @@ export function Preview() {
           returnLevel: secondsLeft < 60 ? 'danger' : secondsLeft < 300 ? 'warning' : 'ok',
         }}
         alert={alert}
-        o2={o2Bar(sample.o2)}
+        o2={physicalHud?.o2 ?? { label: 'O₂', value: 'N/A', fraction: 0 }}
         temperature={tempBar(sample.tempC)}
         swayTargetRef={swayRef}
         sheenRef={sheenRef}
@@ -1438,6 +1445,22 @@ export function Preview() {
         compassRef={compassRef}
       />
       </div>
+      {mode === 'eva' && (
+        <div style={{ position: 'absolute', left: 16, bottom: 12, zIndex: 20, color: '#e8edf0', background: '#121820cc', padding: 8, fontSize: 12 }} aria-label="EVA physics telemetry">
+          <div>{runtimeSnapshot?.physics?.emergencyTest ? 'TEST: 2 g EMERGENCY · ' : ''}ENGINEERING SCENARIO · {runtimeSnapshot?.mission.status ?? 'loading'} · {runtimeSnapshot?.paused ? 'PAUSED' : runtimeSnapshot?.physics?.activity}</div>
+          <div>O₂ {runtimeSnapshot?.resources.oxygenGrams?.toFixed(3)} / 750 g · {runtimeSnapshot?.physics?.oxygenRateGramsPerHour.toFixed(2)} g/h · {runtimeSnapshot?.physics?.metabolicPowerWatts.toFixed(1)} W</div>
+          <div>Elapsed {runtimeSnapshot?.simTimeSeconds.toFixed(1)} s · X {runtimeSnapshot?.player.position.x.toFixed(2)} · Z {runtimeSnapshot?.player.position.z.toFixed(2)} m · BODY TEMP: VISUAL DEMO</div>
+          <div>Terrain: demo-shaped HiRISE-derived</div>
+          <button onClick={() => { const e = runtimeRef.current; if (!e) return; e.dispatch({ type: e.getSnapshot().paused ? 'resume' : 'pause' }); runtimePausedRef.current = e.getSnapshot().paused; if (runtimePausedRef.current) document.exitPointerLock(); setRuntimeSnapshot(e.getSnapshot()); }}>{runtimeSnapshot?.paused ? 'Resume' : 'Pause'}</button>
+          <button onClick={() => { if (window.location.search) window.location.replace(window.location.pathname + window.location.hash); else window.location.reload(); }}>Reset to base</button> <a href="#raw">RAW diagnostics</a>
+        </div>
+      )}
+      {mode === 'base' && (
+        <details style={{ position: 'absolute', bottom: 8, left: 12, zIndex: 20, color: 'white' }}>
+          <summary>Developer test {PARAMS.get('emergency') === '1' ? '· TEST: 2 g EMERGENCY ACTIVE' : ''}</summary>
+          <a href="?emergency=1#preview">TEST: 2 g emergency oxygen on next EVA</a> · <a href="#raw">RAW diagnostics</a>
+        </details>
+      )}
       {mode === 'base' && (
         <div className="base-ui" aria-live="polite">
           <div className="base-crosshair" />
@@ -1461,7 +1484,7 @@ export function Preview() {
         </div>
       )}
       <div className="preview-badge" ref={badgeRef} style={{ display: 'none' }}>
-        PREVIEW · inside: WASD, click the console to plan (Esc to stand up), E at the hatch to go out · outside: click to look, WASD to walk, Shift to run, Space to jump, F to do an objective, E to accept, M to mute, T to turn the topology off and on,
+        PREVIEW · inside: WASD, click the console to plan (Esc to stand up), E at the hatch to go out · outside: click to look, WASD to walk, Shift to run, Space to jump, E to do an objective or accept, hold F for 2x speed, M to mute, T to turn the topology off and on,
         O to move the path outline between the world and the glass, Esc to release
         <br />
         {terrainNote}

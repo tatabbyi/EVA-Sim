@@ -1,0 +1,8 @@
+/* Written with AI assistance (Codex). Alex-owned composition only. */
+.raw-app { position: relative; width: 100vw; height: 100vh; overflow: hidden; background: var(--c-space); color: var(--c-hud); font: 12px/1.5 system-ui, sans-serif; }
+.raw-scene { position: absolute; inset: 0; }
+.raw-scene canvas { display: block; }
+.raw-controls { position: absolute; z-index: 20; left: 12px; bottom: 12px; max-width: 520px; padding: 12px; background: #060b12dd; border: 1px solid #94b6ca66; border-radius: 6px; }
+.raw-controls button, .raw-controls a { margin: 5px 8px 5px 0; color: inherit; }
+.raw-controls button { background: #233242; border: 1px solid #94b6ca; border-radius: 3px; padding: 5px 9px; cursor: pointer; }
+.raw-controls button:disabled { opacity: .4; cursor: default; }

@@ -14,7 +14,11 @@
     "start:electron": "electron .",
     "dist:linux": "npm run build && electron-builder --linux --x64 --publish never",
     "dist:win": "npm run build && electron-builder --win --x64 --publish never",
-    "postinstall": "install-electron"
+    "test": "node --test tests/*.test.mjs",
+    "postinstall": "install-electron",
+    "smoke": "electron . --smoke",
+    "smoke:missing": "electron . --smoke --smoke-missing",
+    "smoke:preview": "electron . --smoke --smoke-preview"
   },
   "dependencies": {
     "lil-gui": "0.21.0",
@@ -28,10 +32,12 @@
     "@types/react-dom": "19.3.0",
     "@types/three": "0.187.0",
     "@vitejs/plugin-react": "6.3.0",
-    "typescript": "7.0.2",
-    "vite": "8.3.8",
     "electron": "45.3.2",
-    "electron-builder": "26.18.0"
+    "electron-builder": "26.18.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
   },
-  "main": "electron/main.cjs"
+  "main": "electron/main.cjs",
+  "description": "Offline Jezero RAW engine demo",
+  "author": "Sharkies team"
 }
