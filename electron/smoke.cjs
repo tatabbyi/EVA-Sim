@@ -11,7 +11,7 @@ module.exports = function runSmoke(win, app) {
           const missing = process.argv.includes('--smoke-missing');
           const preview = process.argv.includes('--smoke-preview');
           const result = await win.webContents.executeJavaScript(`(async () => {
-            if (${preview}) location.hash = '#preview';
+            location.hash = ${preview} ? '#preview' : '#raw';
             const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
             for (let i=0;i<200;i++) {
               const error = document.querySelector('[role="alert"]');

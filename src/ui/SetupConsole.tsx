@@ -15,21 +15,18 @@ export interface SetupMission {
   title: string;
   minutes: number; // time budget for the subtask itself
   distance: number; // metres from the airlock along the route
-  litres: number; // oxygen for the subtask itself
+  oxygenGrams: number; // oxygen for the subtask itself
   at: XZ;
   done: boolean;
 }
 
 export interface SetupLevels {
-  walkLitres: number; // out to the furthest subtask and back
-  taskLitres: number;
-  reserve: number;
-  tank: number; // suit tank, usable litres
-  baseStore: number; // base oxygen store, litres
-  baseCapacity: number;
-  lastEva: { returned: number; isru: number }; // litres back in the suit last time, litres made by the oxygen plant since
+  walkGrams: number; // out to the furthest subtask and back
+  taskGrams: number;
+  reserveGrams: number;
+  tankGrams: number; // suit oxygen capacity, grams
   minutes: number; // planned EVA time
-  evaMinutes: number; // EVA time limit
+  evaMinutes: number; // scenario planning budget, not an engine failure timer
   metres: number; // walking distance, out and back
 }
 
@@ -186,7 +183,7 @@ function drawMap(canvas: HTMLCanvasElement, grid: Grid<Float32Array>, r: ReturnT
   return interval;
 }
 
-const litres = (l: number) => `${Math.round(l)} litres`;
+const grams = (g: number) => `${g.toFixed(1)} g`;
 
 function Meter({ value, total, tone }: { value: number; total: number; tone: 'ok' | 'warning' | 'danger' }) {
   return (
@@ -210,11 +207,11 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
   const pathD = (pts: XZ[]) => pts.map((p, i) => `${i ? 'L' : 'M'}${toMap(p).x.toFixed(1)} ${toMap(p).y.toFixed(1)}`).join('');
   const scaleM = 100, scalePx = (scaleM / (region.x1 - region.x0)) * MAP_W;
 
-  const any = chosen.some((c, i) => c && !missions[i]?.done);
-  const needed = levels ? levels.walkLitres + levels.taskLitres + levels.reserve : 0;
-  const fitsO2 = levels ? needed <= levels.tank : false;
+  const exactlyTwo = chosen.filter((c, i) => c && !missions[i]?.done).length === 2;
+  const needed = levels ? levels.walkGrams + levels.taskGrams + levels.reserveGrams : 0;
+  const fitsO2 = levels ? needed <= levels.tankGrams : false;
   const fitsTime = levels ? levels.minutes <= levels.evaMinutes : false;
-  const why = !levels ? 'Loading the map…' : !any ? 'Tick at least one subtask' : !fitsO2 ? 'Not enough oxygen for this plan' : !fitsTime ? 'This plan takes longer than the time allowed' : '';
+  const why = !levels ? 'Loading the map…' : !exactlyTwo ? 'Select exactly TWO objectives' : !fitsO2 ? 'Not enough oxygen for this plan' : !fitsTime ? 'This plan takes longer than the time allowed' : '';
 
   return (
     <div className="plan">
@@ -245,28 +242,26 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
             ))}
           </ul>
 
-          <h3 className="plan-h">This plan needs</h3>
+          <h3 className="plan-h">ENGINEERING SCENARIO ESTIMATES</h3>
           {levels ? (
             <dl className="plan-needs">
               <div>
                 <dt>Oxygen</dt>
                 <dd>
-                  {litres(needed)} <span className="plan-sub">of the {litres(levels.tank)} in your suit, with {litres(levels.reserve)} kept spare</span>
+                  {grams(needed)} <span className="plan-sub">of the {grams(levels.tankGrams)} in your suit, with {grams(levels.reserveGrams)} kept spare (30 min idle assumption)</span>
                 </dd>
-                <Meter value={needed} total={levels.tank} tone={fitsO2 ? 'ok' : 'danger'} />
+                <Meter value={needed} total={levels.tankGrams} tone={fitsO2 ? 'ok' : 'danger'} />
               </div>
               <div>
                 <dt>Time</dt>
                 <dd>
-                  {Math.round(levels.minutes)} minutes <span className="plan-sub">of the {levels.evaMinutes} allowed · {(levels.metres / 1000).toFixed(2)} km walk there and back</span>
+                  {Math.round(levels.minutes)} minutes <span className="plan-sub">estimated · {levels.evaMinutes} min planning budget · {Math.round(levels.metres)} m walk there and back</span>
                 </dd>
                 <Meter value={levels.minutes} total={levels.evaMinutes} tone={fitsTime ? (levels.minutes > levels.evaMinutes * 0.85 ? 'warning' : 'ok') : 'danger'} />
               </div>
               <div>
-                <dt>Base oxygen</dt>
-                <dd>
-                  {litres(levels.baseStore)} stored <span className="plan-sub">({litres(levels.lastEva.returned + levels.lastEva.isru)} recovered since the last EVA)</span>
-                </dd>
+                <dt>Base O₂ storage</dt>
+                <dd>Not simulated</dd>
               </div>
             </dl>
           ) : (

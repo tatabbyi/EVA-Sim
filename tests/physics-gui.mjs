@@ -34,7 +34,7 @@ const until=async (predicate,timeoutMs,label)=>{
 };
 const capture=async name=>{const {data}=await send('Page.captureScreenshot');await writeFile(`release/evidence/physics-${name}.png`,Buffer.from(data,'base64'));};
 const key=(type,key,code,windowsVirtualKeyCode,modifiers=0)=>send('Input.dispatchKeyEvent',{type,key,code,windowsVirtualKeyCode,modifiers});
-const fast=async down=>{if(down){await key('keyDown','Shift','ShiftLeft',16,8);await key('keyDown','W','KeyW',87,8);}else{await key('keyUp','W','KeyW',87,8);await key('keyUp','Shift','ShiftLeft',16);}};
+const fast=async down=>{if(down){await focusNative(child.pid);await lock();await key('keyDown','Shift','ShiftLeft',16,8);await key('keyDown','W','KeyW',87,8);}else{await key('keyUp','W','KeyW',87,8);await key('keyUp','Shift','ShiftLeft',16);}};
 const lock=async()=>{await send('Page.bringToFront');await evaluate(`(() => { [...document.querySelectorAll('button')].find(b=>b.textContent==='Resume')?.click();document.activeElement?.blur();document.querySelector('.raw-scene canvas').click(); })()`);await wait(300);assert.equal(await evaluate('!!document.pointerLockElement'),true);};
 try {
  let endpoint;
@@ -45,7 +45,7 @@ try {
  ws=new WebSocket(page.webSocketDebuggerUrl);
  await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject;});
  ws.onmessage=event=>{const r=JSON.parse(event.data);if(!r.id)return;const p=pending.get(r.id);pending.delete(r.id);if(r.error)p?.reject(new Error(JSON.stringify(r.error)));else p?.resolve(r.result);};
- await send('Runtime.enable');await send('Page.enable');await mkdir('release/evidence',{recursive:true});
+ await send('Runtime.enable');await send('Page.enable');await send('Page.navigate',{url:'eva://app/index.html#raw'});await mkdir('release/evidence',{recursive:true});
  await until(s=>s.ready&&s.oxygen>749,15000,'Normal scene');await focusNative(child.pid,true);await send('Page.bringToFront');
  await lock();const idle=await state();await wait(1200);const later=await state();assert.ok(later.oxygen<idle.oxygen);assert.equal(later.power,165);console.log('GUI nominal idle',JSON.stringify(later));
  await fast(true);await until(s=>s.activity==='fast'&&s.rate>100,5000,'Fast gait');

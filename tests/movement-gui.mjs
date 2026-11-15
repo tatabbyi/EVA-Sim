@@ -82,7 +82,7 @@ try{
  await matrix('eva');
  // Repeat RAW/preview transitions in one document to expose retained loops/listeners.
  for(let cycle=0;cycle<3;cycle++){
-  await gui.evaluate("location.hash=''");await gui.until('!!document.querySelector("[data-scene-ready=true]")','RAW remount');await wait(600);lifecycle.push({cycle,mode:'raw',state:await gui.read()});
+  await gui.evaluate("location.hash='#raw'");await gui.until('!!document.querySelector("[data-scene-ready=true]")','RAW remount');await wait(600);lifecycle.push({cycle,mode:'raw',state:await gui.read()});
   await gui.evaluate("location.hash='#preview'");await gui.until('!!document.querySelector(".preview-canvas canvas")&&__runtimeQA.read()?.base','base remount');await wait(1200);lifecycle.push({cycle,mode:'preview',state:await gui.read()});
  }
  for(const mode of ['raw','preview']){

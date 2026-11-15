@@ -14,7 +14,7 @@ export async function focusNative(pid,layout=false){
  await promisify(execFile)('hyprctl',['eval',`for _,w in ipairs(hl.get_windows()) do if w.pid==${Number(pid)} then ${arrange}hl.dispatch(hl.dsp.focus({window=w})) end end`]);
 }
 export const instrumentation=String.raw`(() => {
- const q=window.__runtimeQA={renderers:[],camera:null,scene:null,keys:[],audio:[],frames:new Set(),intervals:new Set(),listeners:[]};
+ const q=window.__runtimeQA={documentURL:location.href,renderers:[],camera:null,scene:null,keys:[],audio:[],frames:new Set(),intervals:new Set(),listeners:[]};
  const raf=requestAnimationFrame.bind(window),caf=cancelAnimationFrame.bind(window);
  window.requestAnimationFrame=fn=>{let id=raf(t=>{q.frames.delete(id);fn(t);});q.frames.add(id);return id;};
  window.cancelAnimationFrame=id=>{q.frames.delete(id);caf(id);};
@@ -26,7 +26,7 @@ export const instrumentation=String.raw`(() => {
  const tracked=(target,type)=>['keydown','keyup','mousemove','blur','visibilitychange','pointerlockchange'].includes(type)&&(target===window||target===document||target instanceof HTMLCanvasElement);
  EventTarget.prototype.addEventListener=function(type,fn,opts){if(tracked(this,type)&&!opts?.once&&!q.listeners.some(v=>v.target===this&&v.type===type&&v.fn===fn&&v.capture===capture(opts)))q.listeners.push({target:this,type,fn,capture:capture(opts)});return add.call(this,type,fn,opts);};
  EventTarget.prototype.removeEventListener=function(type,fn,opts){q.listeners=q.listeners.filter(v=>!(v.target===this&&v.type===type&&v.fn===fn&&v.capture===capture(opts)));return remove.call(this,type,fn,opts);};
- add.call(window,'keydown',e=>{q.keys.push({code:e.code,trusted:e.isTrusted});if(q.keys.length>200)q.keys.shift();});
+ for(const type of ['keydown','keyup'])add.call(window,type,e=>{q.keys.push({type:e.type,code:e.code,trusted:e.isTrusted,time:performance.now()});if(q.keys.length>200)q.keys.shift();});
  const AC=window.AudioContext;
  window.AudioContext=new Proxy(AC,{construct(target,args){const ctx=Reflect.construct(target,args);q.audio.push(ctx);ctx.__gains=[];const gain=ctx.createGain.bind(ctx);ctx.createGain=()=>{const n=gain();ctx.__gains.push(n);return n;};return ctx;}});
  window.__THREE_DEVTOOLS__=new EventTarget();
@@ -42,7 +42,7 @@ export const instrumentation=String.raw`(() => {
   r.dispose=()=>{record.disposed=true;return dispose();};
  });
  q.engine=()=>{
-  let fiber=Object.entries(document.querySelector('.raw-app')??{}).find(([k])=>k.startsWith('__reactFiber'))?.[1];
+  let fiber=Object.entries(document.querySelector('.raw-app,.preview')??{}).find(([k])=>k.startsWith('__reactFiber'))?.[1];
   for(;fiber;fiber=fiber.return)for(let hook=fiber.memoizedState;hook;hook=hook.next){const candidate=hook.memoizedState?.current;if(candidate?.getSnapshot&&candidate?.dispatch)return candidate;}
   return null;
  };
@@ -79,8 +79,22 @@ export async function launchGui(label='movement'){
   const screenshot=async name=>{const {data}=await send('Page.captureScreenshot');await writeFile(`release/evidence/post-merge/${label}-${name}.png`,Buffer.from(data,'base64'));};
   const key=async(type,code)=>{const k=code.startsWith('Key')?code.slice(3):code.startsWith('Shift')?'Shift':code;const vk=k==='Shift'?16:k==='Escape'?27:k.charCodeAt(0);await send('Input.dispatchKeyEvent',{type,key:k,code,windowsVirtualKeyCode:vk,modifiers:k==='Shift'?8:0});};
   const click=async selector=>{const r=await evaluate(`(() => {const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing click target');const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...r});await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...r});};
-  const lock=async()=>{await focusNative(child.pid);await send('Page.bringToFront');await evaluate(`(() => { [...document.querySelectorAll('button')].find(b=>b.textContent==='Resume')?.click();document.activeElement?.blur();document.querySelector('.raw-scene canvas,.preview-canvas canvas').click();})()`);await until('!!document.pointerLockElement','native pointer lock',7000);await wait(100);};
-  const navigate=async suffix=>{await send('Page.navigate',{url:'eva://app/index.html'+suffix});await until('window.__runtimeQA?.camera&&document.querySelector(".raw-scene canvas,.preview-canvas canvas")','instrumented scene',45000);await wait(800);};
+  const lock=async()=>{
+   await focusNative(child.pid);await send('Page.bringToFront');
+   await evaluate(`(() => {[...document.querySelectorAll('button')].find(b=>b.textContent==='Resume')?.click();document.activeElement?.blur();})()`);
+   if(!await evaluate('!!document.pointerLockElement')){
+    await click('.raw-scene canvas,.preview-canvas canvas');await wait(150);
+    if(!await evaluate('!!document.pointerLockElement'))await evaluate("document.querySelector('.raw-scene canvas,.preview-canvas canvas').click()");
+   }
+   await until('!!document.pointerLockElement','native pointer lock',7000);await wait(100);
+  };
+  let navigation=0;
+  const navigate=async suffix=>{
+   // A unique query guarantees a new document even for hash-only route changes.
+   const target=new URL('eva://app/index.html'+suffix);target.searchParams.set('__qaReload',String(++navigation));
+   await send('Page.navigate',{url:target.href});
+   await until(`window.__runtimeQA?.documentURL===${JSON.stringify(target.href)}&&__runtimeQA.camera&&document.querySelector(".raw-scene canvas,.preview-canvas canvas")`,'instrumented scene',45000);await wait(800);
+  };
   const escapeNative=async()=>{
    if(process.env.HYPRLAND_INSTANCE_SIGNATURE){
     await focusNative(child.pid);
@@ -98,7 +112,7 @@ export async function launchGui(label='movement'){
    return async()=>{other.kill();await rm(directory,{recursive:true,force:true});await focusNative(child.pid);await send('Page.bringToFront');};
   };
   await send('Runtime.enable');await send('Page.enable');await send('Network.enable');await send('Page.addScriptToEvaluateOnNewDocument',{source:instrumentation});
-  await navigate('');await until('document.querySelector("[data-scene-ready=true]")','RAW ready');await focusNative(child.pid,true);await send('Page.bringToFront');await wait(1000);
+  await navigate('#raw');await until('document.querySelector("[data-scene-ready=true]")','RAW ready');await focusNative(child.pid,true);await send('Page.bringToFront');await wait(1000);
   return{child,send,evaluate,until,read,screenshot,key,click,lock,navigate,escapeNative,focusAway,close,errors,network};
  }catch(error){await close();throw error;}
 }
