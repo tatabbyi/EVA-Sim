@@ -49,7 +49,7 @@ export function App() {
     <section className="raw-controls" aria-label="Demo controls" style={{maxHeight:'calc(100vh - 24px)',overflowY:'auto'}}>
       <strong>Mars EVA Physics DEMO v0.1 · {routeError ? 'Route unavailable' : snapshot ? routeLabel(snapshot.mission.route.source) : 'DEMO route'}</strong>
       <div>Click terrain to look · WASD · Shift run · Esc release</div>
-      <div>Suited EVA · suit temperature UNKNOWN · engineering scenario</div>
+      <div>Suited EVA · measured suit temperature UNKNOWN · THERMAL ENGINEERING MODEL / NOT NASA-VALIDATED</div>
       <button disabled={!snapshot} onClick={switchScenario}>{emergency ? 'Return to normal O₂ (750 g)' : 'TEST: O₂ EMERGENCY DEMO (2 g / 750 g)'}</button>
       {emergency && <div role="status"><strong>O₂ EMERGENCY DEMO TEST — 2 g starting stock / 750 g capacity. Normal consumption, no time acceleration.</strong></div>}
       {physics && snapshot && <div aria-label="Physics telemetry">
@@ -58,6 +58,7 @@ export function App() {
         <div>Directional slope {physics.currentSlopeDeg === null ? 'NO DATA' : `${physics.currentSlopeDeg.toFixed(2)}°`} · 1 m interpolated probe / 4 m grid</div>
         <div>{physics.totalMassKg.toFixed(1)} kg total · {physics.carriedMassKg.toFixed(1)} kg assumed payload · {physics.weightNewtons.toFixed(2)} N · g {physics.gravityMps2} m/s²</div>
         <div>OUTSIDE / AMBIENT: {physics.ambientTemperatureC} °C · {physics.ambientPressurePa} Pa · {(physics.co2VolumeFraction*100).toFixed(1)}% CO₂ (fixed scenario)</div>
+        {snapshot.thermal && <div>MODELED internal suit gas · {toHelmetHud(snapshot).temperature.value} · cooling heat {snapshot.thermal.coolingHeatW.toFixed(1)} W · energy residual {snapshot.thermal.energyBalanceResidualJ.toExponential(2)} J · {snapshot.thermal.scenarioId}</div>}
       </div>}
       {failed && <div role="alert"><strong>MISSION FAILED — oxygen depleted (0 g).</strong> Movement and tasks stopped. Reset restarts this scenario; return to normal O₂ starts a full mission.</div>}
       {routeError && <p role="status">{routeError}</p>}
