@@ -1,6 +1,7 @@
 // Written with AI assistance (Codex). Pure TypeScript; no platform or renderer imports.
 import { contains, validateBounds, validateRoute, TASK_IDS, PREVIEW_ONLY_TASK_IDS, type Command, type DeepReadonly, type EngineSnapshot, type Mission, type Region, type SemanticEvent, type XZ } from './contracts.ts';
 import { gramsPerHour, integrateLifeSupport, massAndWeight, oxygenWarning, physicsMotion, validatePhysicsOptions, type DemoPhysicsOptions, type PhysicsTelemetry } from './physics.ts';
+import {advanceScenarioThermal,THERMAL_ENGINEERING_SCENARIO} from '../physics/thermal-scenario.ts';
 export type DemoMovement = { walkMetresPerSecond: number; runMetresPerSecond: number; eyeHeightMetres: number };
 export const DEMO_MOVEMENT = { walkMetresPerSecond: 3, runMetresPerSecond: 8, eyeHeightMetres: 1.7 } as const; // demo approximations; no suit physics
 const clone = <T>(value: T): T => structuredClone(value);
@@ -20,6 +21,7 @@ export function createEngine(region: Region, mission: Mission, canOccupy: (p: XZ
   const initial: EngineSnapshot = { simTimeSeconds: 0, paused: false, region: clone(region), player: { position: clone(mission.shuttle), movementMode: 'idle' }, mission: { ...clone(mission), route: validateRoute(mission.route, b) }, resources: { oxygenGrams: null, oxygenCapacityGrams: null }, boundaryWarning: false };
   // Capture caller-owned configuration once; published telemetry has no provider/function.
   const physics = physicsOptions ? { ...physicsOptions, profile: Object.freeze({ ...physicsOptions.profile }) } : undefined;
+  const thermalScenario=physics && physics.thermal!==false ? freeze(clone(physics.thermal??THERMAL_ENGINEERING_SCENARIO)) : undefined;
   if (physics) {
     validatePhysicsOptions(physics);
     const h=physics.heightAt(mission.shuttle.x,mission.shuttle.z);
@@ -35,6 +37,7 @@ export function createEngine(region: Region, mission: Mission, canOccupy: (p: XZ
       speedMetresPerSecond:0,oxygenWarning:oxygenWarning(oxygenGrams,p),
       ambientTemperatureC:p.ambientTemperatureC,ambientPressurePa:p.ambientPressurePa,
       co2VolumeFraction:p.co2VolumeFraction,gravityMps2:p.gravityMps2 };
+    if(thermalScenario)initial.thermal=advanceScenarioThermal(thermalScenario,thermalScenario.initialState,initial.physics.metabolicPowerWatts,0);
   }
   freeze(initial);
   let state = initial, direction = { x: 0, z: 0 }, running = false, disposed = false;
@@ -107,6 +110,9 @@ export function createEngine(region: Region, mission: Mission, canOccupy: (p: XZ
         const oldWarning=state.physics.oxygenWarning, p=state.player.position;
         const motion=physicsMotion(physics,p,direction,running,state.mission.tasks.some(t=>t.status === 'active'),seconds,b,canOccupy);
         const gas=integrateLifeSupport(state.resources.oxygenGrams,motion.metabolicPowerWatts,seconds);
+        // Thermal energy uses the same authoritative metabolism and surviving dt.
+        // No solver work occurs on pause, legacy mode, or after terminal failure.
+        const thermal=thermalScenario && state.thermal ? advanceScenarioThermal(thermalScenario,state.thermal,motion.metabolicPowerWatts,gas.elapsedSeconds) : undefined;
         // The same constant-per-step rate drives position, time and energy through the
         // exact surviving fraction of the final dt. No post-exhaustion travel is credited.
         const fraction=gas.elapsedSeconds/seconds;
@@ -121,7 +127,7 @@ export function createEngine(region: Region, mission: Mission, canOccupy: (p: XZ
         state={...state,simTimeSeconds:state.simTimeSeconds+gas.elapsedSeconds,
           player:{position,movementMode:gas.depleted || !moving ? 'idle' : running ? 'run' : 'walk'},
           mission:gas.depleted ? {...state.mission,status:'failed'} : state.mission,
-          resources:{...state.resources,oxygenGrams:gas.oxygenGrams},physics:telemetry,
+          resources:{...state.resources,oxygenGrams:gas.oxygenGrams},physics:telemetry,...(thermal ? {thermal} : {}),
           boundaryWarning:motion.boundaryBlocked || Math.min(position.x-b.minX,b.maxX-position.x,position.z-b.minZ,b.maxZ-position.z) < 10};
         if (gas.depleted) { direction={x:0,z:0}; running=false; }
         const eventTime=state.simTimeSeconds;
