@@ -1,7 +1,7 @@
 // Written with AI assistance (Claude).
-// Owner: Rachel. The path to follow: solid 3D chevrons with a little thickness, raised just above the ground and
-// casting a shadow, in warm yellow so they stand apart from the blue contour lines on the ground. Spaced out, gliding
-// slowly forward, fading out as you reach them; arrows you've passed are gone (setProgress). For the way home, build a
+// Owner: Rachel. The path to follow: big, slim, solid 3D chevrons with rounded edges, raised above the ground and
+// casting a shadow, in warm yellow. Spaced out, gliding slowly forward, fading out quickly as you reach them and
+// within about 90 m ahead; arrows you've passed are gone (setProgress). For the way home, build a
 // new path from where you stand. Points: Nanda's routes (local x/z, m). The glass version is src/ui/glassPath.ts.
 
 import * as THREE from 'three';
@@ -18,7 +18,7 @@ export interface RoutePath {
 
 /** A chevron pointing along +X in its own plane, centred on the origin. inset > 0 makes an outline (shape with a hole). */
 function chevron(inset = 0): THREE.Shape {
-  const pts: [number, number][] = [[0.25, 0], [-0.25, 0.42], [-0.43, 0.42], [0.07, 0], [-0.43, -0.42], [-0.25, -0.42]];
+  const pts: [number, number][] = [[0.25, 0], [-0.31, 0.42], [-0.43, 0.42], [0.13, 0], [-0.43, -0.42], [-0.31, -0.42]]; // slim arms
   const s = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
   if (inset > 0) {
     const k = 1 - inset;
@@ -32,8 +32,8 @@ export function createRoutePath(
   heightAt: (x: number, z: number) => number,
   opts: { spacing?: number; color?: string; hover?: number; speed?: number } = {},
 ): RoutePath {
-  const spacing = opts.spacing ?? 6;
-  const hover = opts.hover ?? 0.12; // raised a little: clearly off the ground, not floating
+  const spacing = opts.spacing ?? 4.5;
+  const hover = opts.hover ?? 0.25; // raised: clearly off the ground, not floating
   const speed = opts.speed ?? 0.7;
   const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(p.x, 0, p.z)), false, 'centripetal');
   const length = curve.getLength();
@@ -48,20 +48,21 @@ export function createRoutePath(
     return Math.atan2(-(b.z - a.z), b.x - a.x);
   };
 
-  // A chevron 5 cm thick with softly rounded edges, lying flat.
-  const geo = new THREE.ExtrudeGeometry(chevron(), { depth: 0.05, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.012, bevelSegments: 2, curveSegments: 1 });
+  // A big chevron (about 1.1 m across) with slim arms, 9 cm thick, edges rounded, lying flat.
+  const geo = new THREE.ExtrudeGeometry(chevron(), { depth: 0.05, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 3, curveSegments: 1 });
   geo.rotateX(-Math.PI / 2);
+  geo.scale(1.6, 1, 1.6);
 
   const count = Math.floor(length / spacing) + 1;
   const fade = new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1);
   geo.setAttribute('aFade', fade);
-  const warm = opts.color ?? '#ffc93c'; // warm yellow: stands apart from the blue contours and the ground colours
+  const warm = opts.color ?? '#ffc93c'; // warm yellow
   const material = new THREE.MeshStandardMaterial({
     color: warm,
-    emissive: warm,
-    emissiveIntensity: 0.45, // a soft glow so they read in shadow too
-    roughness: 0.45,
-    metalness: 0.05,
+    emissive: '#e8a100',
+    emissiveIntensity: 0.45, // a glow so they read in shadow, while the sun still shades the sides (3D)
+    roughness: 0.35,
+    metalness: 0.1,
     transparent: true,
   });
   material.onBeforeCompile = (shader) => {
@@ -107,11 +108,11 @@ export function createRoutePath(
       const glide = (t * speed) % spacing;
       for (let i = 0; i < count; i++) {
         const s = i * spacing + glide;
-        // fades from 6 m before you reach it down to nothing as you pass over it, and out in the distance
-        const near = Math.min(1, Math.max(0, (s - walked) / 6));
+        // fades from 2.5 m before you reach it down to nothing as you pass over it, and out in the distance
+        const near = Math.min(1, Math.max(0, (s - walked) / 2.5));
         const yaw = sample(Math.min(s, length), pos);
         const dist = Math.hypot(pos.x - walker.x, pos.z - walker.z);
-        const far = 1 - Math.min(1, Math.max(0, (dist - 120) / 80));
+        const far = 1 - Math.min(1, Math.max(0, (dist - 50) / 40));
         const f = near * near * (3 - 2 * near) * far;
         if (s > length || f < 0.01) {
           arrows.setMatrixAt(i, hidden);

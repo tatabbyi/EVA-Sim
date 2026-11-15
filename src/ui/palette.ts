@@ -64,17 +64,23 @@ export interface TerrainPreset {
   colorBy?: 'height' | 'slope';
 }
 
-/** Walkability by slope: what each ground colour means. Easy ground (most of it: bare, under 8°) keeps the natural
- *  Mars colour, so colour only shows where the ground gets harder: peach, apricot, coral, then rose red. Over 24° is
- *  the planner's limit for walking straight up or down, so red ground is only crossed sideways or in a zigzag.
- *  On the plan map, easy ground is plain paper (MAP_BARE) instead of brown. */
+/** Walkability by slope: what each ground colour means. Flat, easy ground keeps the plain light sand; going up the
+ *  hills the visor lays a soft wash of yellow, orange, red, then deep red where it's too steep to walk straight up
+ *  or down (the planner's 24° limit, so that ground is only crossed sideways or in a zigzag). The in-between limits
+ *  (11° and 16°) are set from the demo site itself, so the colours share what you see about evenly. The plan map
+ *  uses the same colours over plain paper. */
 export const SLOPE_CLASSES = [
-  { colour: '#b8875f', upTo: 8, label: 'Easy' }, // natural ground (butterscotch, like Perseverance's Jezero photos)
-  { colour: '#f4b98f', upTo: 15, label: 'Gentle' }, // peach
-  { colour: '#f29a66', upTo: 20, label: 'Moderate' }, // apricot
-  { colour: '#e9705a', upTo: 24, label: 'Steep' }, // coral
-  { colour: '#d8465c', upTo: 90, label: 'Zigzag only' }, // rose red, striped
+  { colour: '#dcc4a0', upTo: 8, label: 'Easy' }, // plain light sand (no wash)
+  { colour: '#f6cd4c', upTo: 11, label: 'Gentle' }, // yellow
+  { colour: '#f39237', upTo: 16, label: 'Moderate' }, // orange
+  { colour: '#e2483d', upTo: 24, label: 'Steep' }, // red
+  { colour: '#a8232f', upTo: 90, label: 'Zigzag only' }, // deep red
 ] as const;
+/** How strongly the slope colours are laid over the ground: nothing on easy ground, then base + perClass x class
+ *  (class 1 = Gentle ... 4 = Zigzag only). Shared by the 3D ground (material.ts) and the plan map. */
+export const SLOPE_WASH = { base: 0.42, perClass: 0.08 };
+/** Wash strength for a slope class position t (0 = easy ... 4 = zigzag only; fractions blend between classes). */
+export const slopeWash = (t: number) => Math.min(1, Math.max(0, t)) * (SLOPE_WASH.base + SLOPE_WASH.perClass * t);
 export const MAP_BARE = '#ece4d8';
 
 export const terrainPresets = {
@@ -83,7 +89,7 @@ export const terrainPresets = {
     // coral and striped rose red over the slopes (warm, no yellow: yellow turned khaki in the orange haze). Height is in the blue
     // contour lines (every 2 m, bolder every 10 m).
     label: 'Walkability (slope)',
-    ramp: ['#b8875f', '#f4b98f', '#f29a66', '#e9705a', '#d8465c'],
+    ramp: ['#dcc4a0', '#dcc4a0', '#f6cd4c', '#f39237', '#e2483d', '#a8232f'], // ground, then the five slope colours
     cycle: 0,
     line: '#6fe3ff',
     lineStrength: 0.3,
@@ -94,9 +100,9 @@ export const terrainPresets = {
   },
   realistic: {
     label: 'Realistic (AR contours)',
-    // true-colour Mars ground, low to high, over the whole height range: the light butterscotch tan of
-    // Perseverance's Jezero photos (it was a darker, muddier brown); contours are the visor's cyan AR overlay
-    ramp: ['#9a7050', '#a57a58', '#af8360', '#b8875f', '#c09168', '#c99b72'],
+    // Mars ground, low to high, over the whole height range: a light sand (Rachel: much lighter, less tan than the
+    // butterscotch it was); contours are the visor's cyan AR overlay
+    ramp: ['#c8ab8a', '#cfb392', '#d5bb99', '#dcc4a0', '#e2cba8', '#e8d3b1'],
     cycle: 0,
     line: '#6fe3ff',
     lineStrength: 0.55,

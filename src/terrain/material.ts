@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import { BOX_HALF } from '../shared/coords';
-import { defaultTerrainPreset, palette, terrainPresets, type TerrainPresetName } from '../ui/palette';
+import { defaultTerrainPreset, palette, terrainPresets, type TerrainPresetName, SLOPE_CLASSES, SLOPE_WASH } from '../ui/palette';
 
 const MAX_RAMP = 8; // most colours a ground look can have
 
@@ -42,6 +42,7 @@ uniform vec3 uLine;
 uniform float uLineLight;     // 1: lines are light added by the visor, 0: painted lines
 uniform float uColorBySlope;  // 1: ground colour shows walkability by slope (uSlopeStops), not height
 uniform vec4 uSlopeStops;     // slope limits in degrees between the five colours
+uniform vec2 uSlopeWash;      // how strongly the slope colours are laid on: base, then extra per class (palette.ts)
 uniform vec3 uSteepColor;
 
 uniform float uMinor;         // minor contour interval, m
@@ -183,21 +184,18 @@ void main() {
     col *= 1.0 + (fbm(vPosW.xz * 6.0) - 0.5) * 0.22 * near;
   }
 
-  // 2c. Walkability, as visor light over the natural ground: nothing on easy ground, then peach, apricot, coral and
-  // rose red as the slope passes each limit in uSlopeStops (soft 1.5° borders), stronger the steeper it gets. Ground
-  // over the planner's limit (zigzag only) gets diagonal stripes, like no-go hatching on a map. Added after the
-  // lighting so the colours keep their hue (painted in, the orange sunlight turned them muddy), with a little
-  // shading so the relief still reads. Fades out towards the horizon.
+  // 2c. Walkability, as a soft wash of visor light over the ground: nothing on flat ground (plain light sand), then
+  // yellow, orange, red and deep red (too steep to climb straight) going up the hills as the slope passes each limit in
+  // uSlopeStops (soft 1.5° borders), a little stronger the steeper. Laid on after the lighting so the colours keep
+  // their hue, with gentle sun shading so the hills keep their shape. Fades out towards the horizon.
+  // The ramp is [ground, five slope colours]: class k (0..4) is ramp((k + 1) / 5).
   float slope = degrees(acos(clamp(n.y, -1.0, 1.0)));
   if (uColorBySlope > 0.5) {
     float k = smoothstep(uSlopeStops.x - 0.75, uSlopeStops.x + 0.75, slope) + smoothstep(uSlopeStops.y - 0.75, uSlopeStops.y + 0.75, slope)
             + smoothstep(uSlopeStops.z - 0.75, uSlopeStops.z + 0.75, slope) + smoothstep(uSlopeStops.w - 0.75, uSlopeStops.w + 0.75, slope);
-    float s = (vPosW.x + vPosW.z) / 1.4; // stripes 0.7 m wide
-    float stripe = smoothstep(0.5 - fwidth(s), 0.5 + fwidth(s), fract(s));
-    float nogo = smoothstep(uSlopeStops.w - 0.75, uSlopeStops.w + 0.75, slope);
-    float a = clamp(k, 0.0, 1.0) * (0.22 + 0.1 * k) * mix(1.0, 0.35 + 0.65 * stripe, nogo);
-    a *= 1.0 - smoothstep(260.0, 900.0, length(cameraPosition - vPosW));
-    col = mix(col, ramp(k / 4.0) * (0.62 + 0.5 * lambert), a);
+    float a = clamp(k, 0.0, 1.0) * (uSlopeWash.x + uSlopeWash.y * k); // none on flat ground, stronger up the hills (slopeWash)
+    a *= 1.0 - smoothstep(350.0, 1200.0, length(cameraPosition - vPosW));
+    col = mix(col, ramp((k + 1.0) / 5.0) * (0.7 + 0.4 * lambert), a);
   }
 
   // 3. Steep ground: tint from uSlopeWarn up to the uSlopeMax limit (25°, research/02).
@@ -295,7 +293,8 @@ export function createTerrainUniforms() {
     uLine: { value: color(palette.line) },
     uLineLight: { value: 0 },
     uColorBySlope: { value: 0 },
-    uSlopeStops: { value: new THREE.Vector4(8, 15, 20, 24) },
+    uSlopeStops: { value: new THREE.Vector4(SLOPE_CLASSES[0].upTo, SLOPE_CLASSES[1].upTo, SLOPE_CLASSES[2].upTo, SLOPE_CLASSES[3].upTo) }, // limits between the colours
+    uSlopeWash: { value: new THREE.Vector2(SLOPE_WASH.base, SLOPE_WASH.perClass) },
     uSteepColor: { value: color(palette.steep) },
 
     uMinor: { value: 1 },

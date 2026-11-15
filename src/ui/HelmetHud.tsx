@@ -68,6 +68,10 @@ export interface HelmetHudProps {
   fogRef?: MutableRefObject<HTMLDivElement | null>;
   /** A suit status note shown under the bars (e.g. visor fogging): its own spot, so it never covers alerts or text. */
   status?: { title: string; message: string } | null;
+  /** Demo fast-forward factor while it's held (e.g. 2), shown after the clock; null when running at normal speed. */
+  fastForward?: number | null;
+  /** Receives the slot for the holographic compass (hudCompass.ts), low on the left of the glass (see Preview). */
+  compassRef?: MutableRefObject<HTMLDivElement | null>;
 }
 
 // ---------- Visor geometry ----------
@@ -411,7 +415,7 @@ const HelmetFrame = memo(function HelmetFrame({ w, h, uid }: { w: number; h: num
   );
 });
 
-export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, sheenRef, targetRef, interiorRef, breathRef, fogRef, status }: HelmetHudProps) {
+export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, sheenRef, targetRef, interiorRef, breathRef, fogRef, status, fastForward, compassRef }: HelmetHudProps) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const id = (name: string) => `${uid}-${name}`;
   const helmetRef = useRef<HTMLDivElement>(null);
@@ -468,6 +472,7 @@ export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, s
           </div>
         )}
         <div className="hud-interior" ref={interiorRef} />
+        <div className="hud-compass" ref={compassRef} />
         {g && (
           <svg className="hud-svg" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden={!alert}>
             <defs>
@@ -495,6 +500,11 @@ export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, s
                         {headTime}
                       </tspan>
                     </>
+                  )}
+                  {fastForward && (
+                    <tspan className="hud-obj-fast" dx="1em">
+                      ▸▸ {fastForward}×
+                    </tspan>
                   )}
                 </textPath>
               </text>

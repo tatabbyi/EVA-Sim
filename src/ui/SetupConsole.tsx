@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { sampleBilinear, type Grid } from '../shared/grids';
 import type { XZ } from '../shared/coords';
-import { MAP_BARE, SLOPE_CLASSES } from './palette';
+import { MAP_BARE, SLOPE_CLASSES, slopeWash } from './palette';
 import './SetupConsole.css';
 
 export interface SetupMission {
@@ -52,6 +52,12 @@ export interface SetupConsoleProps {
 }
 
 const MAP_W = 1200, MAP_H = 1000; // map drawing size (about the shape of the map area); scaled to fit like "cover"
+
+/** A slope colour as it shows on the map: laid over the paper at this strength (CSS colour). */
+function washed(hex: string, alpha: number): string {
+  const c = hexRgb(hex), p = hexRgb(MAP_BARE);
+  return `rgb(${c.map((v, k) => Math.round(p[k] + (v - p[k]) * alpha)).join(',')})`;
+}
 
 function hexRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -124,8 +130,8 @@ function drawMap(canvas: HTMLCanvasElement, grid: Grid<Float32Array>, r: ReturnT
     lo = Math.min(lo, h);
     hi = Math.max(hi, h);
   }
-  // Easy ground is plain paper; the slope colours are laid over it, stronger the steeper, and zigzag-only ground is
-  // striped (the same look as on the ground outside).
+  // The slope colours are laid over the paper as a soft wash (slopeWash): none on flat ground, stronger up the hills
+  // (the same look as on the ground outside).
   const paper = hexRgb(MAP_BARE);
   const classes = SLOPE_CLASSES.map((c) => hexRgb(c.colour));
   const ease = (e0: number, e1: number, x: number) => Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
@@ -147,8 +153,8 @@ function drawMap(canvas: HTMLCanvasElement, grid: Grid<Float32Array>, r: ReturnT
       for (let c = 0; c < classes.length - 1; c++) t += ease(SLOPE_CLASSES[c].upTo - 0.75, SLOPE_CLASSES[c].upTo + 0.75, deg);
       const k = Math.min(classes.length - 2, Math.floor(t)), f = t - k;
       const a = classes[k], b = classes[k + 1];
-      const stripe = ease(3.5, 6.5, (px + py) % 12) - ease(9.5, 12, (px + py) % 12) > 0.5 ? 1 : 0.4; // diagonal stripes
-      const alpha = Math.min(1, t) * (0.62 + 0.08 * t) * (1 + (stripe - 1) * Math.max(0, t - 3));
+      // a soft wash over the paper, as on the ground outside: light on flat ground, stronger up the hills
+      const alpha = slopeWash(t);
       for (let ch = 0; ch < 3; ch++) {
         const tint = a[ch] + (b[ch] - a[ch]) * f;
         img.data[i * 4 + ch] = Math.min(255, (paper[ch] + (tint - paper[ch]) * alpha) * shade);
@@ -348,14 +354,7 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
           <div className="plan-map-key" aria-label="Ground colours by slope">
             {SLOPE_CLASSES.map((c, i) => (
               <span key={c.label}>
-                <i
-                  style={{
-                    background:
-                      i === 0 ? MAP_BARE
-                      : i === SLOPE_CLASSES.length - 1 ? `repeating-linear-gradient(135deg, ${c.colour} 0 2px, ${MAP_BARE} 2px 3.5px)`
-                      : c.colour,
-                  }}
-                />
+                <i style={{ background: washed(c.colour, slopeWash(i)) }} />
                 {c.label}
               </span>
             ))}

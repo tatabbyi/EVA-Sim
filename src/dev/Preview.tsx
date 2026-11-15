@@ -25,6 +25,7 @@ import { createRoutePath, type RoutePath } from '../terrain/routePath';
 import { createSampleSite } from '../terrain/sampleSite';
 import { abradeTask, coreTask, createDepotTask, createLaserTask, createMoxieTask, createPanoramaTask, type TaskKind, type TaskSite } from '../terrain/tasks';
 import { HelmetHud, type HudAlert, type SuitBar } from '../ui/HelmetHud';
+import { createHudCompass, type CompassTarget } from '../ui/hudCompass';
 import { createHeadSway } from '../ui/headSway';
 import { defaultTerrainPreset, palette, terrainPresets, type TerrainPresetName } from '../ui/palette';
 import { loadMeta } from '../shared/meta';
@@ -165,6 +166,7 @@ export function Preview() {
   const interiorRef = useRef<HTMLDivElement | null>(null);
   const breathRef = useRef<HTMLDivElement | null>(null);
   const fogRef = useRef<HTMLDivElement | null>(null);
+  const compassRef = useRef<HTMLDivElement | null>(null);
   const glassRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<SuitAudio | null>(null);
   const runtimePausedRef = useRef(false);
@@ -192,6 +194,10 @@ export function Preview() {
   const [objSpent, setObjSpent] = useState<number[]>(TASK_PLAN.map(() => 0)); // seconds spent on each objective
   const [currentObj, setCurrentObj] = useState(0); // the objective whose clock is running (the one you're on)
   const [fogWarn, setFogWarn] = useState(false); // visor fogging up: slow down
+  // Demo fast-forward: while F is held on the EVA, everything runs at 2x (walking, tasks, O2, fog, the clocks).
+  const FAST_FORWARD = 2;
+  const speedRef = useRef(1);
+  const [fast, setFast] = useState(false);
   const [mode, setMode] = useState(modeRef.current);
   const [basePrompt, setBasePrompt] = useState('');
   const [chosen, setChosen] = useState<boolean[]>(() => (DEMO ? TASK_PLAN.map(() => true) : twoAtRandom())); // missions picked at the console
@@ -204,10 +210,11 @@ export function Preview() {
   useEffect(() => {
     const t = window.setInterval(() => {
       if (modeRef.current !== 'eva' || runtimePausedRef.current) return; // clocks only run during an active EVA
-      setSecondsLeft((s) => Math.max(0, s - 1));
+      const step = speedRef.current; // seconds of mission time per real second (2 while F is held)
+      setSecondsLeft((s) => Math.max(0, s - step));
       const i = currentRef.current;
       setCurrentObj(i);
-      if (i >= 0) setObjSpent((prev) => prev.map((v, k) => (k === i ? v + 1 : v)));
+      if (i >= 0) setObjSpent((prev) => prev.map((v, k) => (k === i ? v + step : v)));
     }, 1000);
     return () => window.clearInterval(t);
   }, []);
@@ -231,6 +238,8 @@ export function Preview() {
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     const res = createAdaptiveResolution(renderer); // lowers resolution if frames run slow
     const lens = createVisorLens(renderer);
+    const compass = createHudCompass(); // holographic compass on the glass, moved every frame on the EVA
+    compassRef.current?.replaceChildren(compass.element);
     const interior = createHelmetInterior(interiorRef.current!, 80); // mic, valves, cables, drink tube: 3D, inside the helmet
     const glass = createGlassPath(glassRef.current!, palette.ar); // the path drawn on the visor (glass version)
     const audio = createSuitAudio();
@@ -893,6 +902,7 @@ export function Preview() {
     h.add(hs, 'cyclone').name('cyclone alert').onChange((v: boolean) => setSample((p) => ({ ...p, cyclone: v })));
 
     let last = performance.now();
+    let simTime = 0; // mission time, s: runs FAST_FORWARD times faster while F is held
     let o2Now = 280, lastHud = 0, lastSheen = 0, lastLabel = '';
     let bodyT = 36.8; // core body temperature, °C
     let stride = 0, breathPhase = 0, laserClock = 0, lastShot = -1;
@@ -906,7 +916,14 @@ export function Preview() {
     let fpsFrames = 0, fpsTime = 0;
     renderer.setAnimationLoop((ms: number) => {
       const rawDt = (ms - last) / 1000;
-      const dt = Math.min(rawDt, 0.1);
+      const realDt = Math.min(rawDt, 0.1);
+      const speed = modeRef.current === 'eva' && keys.has('KeyF') ? FAST_FORWARD : 1;
+      if (speed !== speedRef.current) {
+        speedRef.current = speed;
+        setFast(speed > 1);
+      }
+      const dt = realDt * speed; // everything in the sim steps by this (the look and head sway use realDt)
+      simTime += dt;
       last = ms;
       if (res.frame(rawDt)) sky.setPixelRatio(res.pixelRatio);
       fpsFrames++;
@@ -977,7 +994,7 @@ export function Preview() {
         const fl = Math.hypot(lookDir.x, lookDir.z) || 1, fx = lookDir.x / fl, fz = lookDir.z / fl;
         const direction = moving ? { x: fwd * fx - side * fz, z: fwd * fz + side * fx } : { x: 0, z: 0 };
         runtimeEngine.dispatch({ type: 'input', direction, run: running });
-        runtimeClock.tick(time);
+        runtimeClock.tick(simTime); // the engine's fixed steps follow mission time, so walking speeds up too
         const player = runtimeEngine.getSnapshot().player;
         camera.position.x = player.position.x;
         camera.position.z = player.position.z;
@@ -1083,7 +1100,7 @@ export function Preview() {
 
       camera.getWorldDirection(lookDir);
       sway.setPitch(Math.asin(Math.max(-1, Math.min(1, lookDir.y)))); // looking up shows the top of the helmet
-      sway.step(dt, running ? 2 : moving ? 1 : 0);
+      sway.step(realDt, running ? 2 : moving ? 1 : 0);
 
       // Demo suit readings: O2 drains with effort and refills when you stop (whiteboard demo rule; not the real
       // consumption model, which is Nanda's). Body temperature: about 36.8 °C at rest, climbing with hard work (running,
@@ -1120,6 +1137,17 @@ export function Preview() {
           lastSheen = shift;
           sheenRef.current.style.transform = `translate3d(${shift}px, 0, 0)`;
         }
+      }
+      // Holographic compass: your heading, the next objective and the base (bearings: 0 = north, clockwise).
+      {
+        const ni = homeBound ? -1 : nextObjective();
+        const next = ni >= 0 ? tasks[ni] : null;
+        const cx = camera.position.x, cz = camera.position.z;
+        const bearingTo = (p: XZ) => Math.atan2(p.x - cx, -(p.z - cz));
+        const marks: CompassTarget[] = [];
+        if (next) marks.push({ kind: 'objective', bearing: bearingTo(next.anchor), label: `${Math.round(Math.hypot(next.anchor.x - cx, next.anchor.z - cz))} M` });
+        if (base) marks.push({ kind: 'base', bearing: bearingTo(base.door) });
+        compass.update(Math.atan2(lookDir.x, -lookDir.z), marks);
       }
       // AR objective marker: projected onto the glass over the next objective (or the airlock on the way home)
       const targetEl = targetRef.current;
@@ -1259,6 +1287,7 @@ export function Preview() {
       terrain?.geometry.dispose();
       material.dispose();
       lens.dispose();
+      compass.element.remove();
       envMap.dispose();
       interior.dispose();
       room.dispose();
@@ -1405,6 +1434,8 @@ export function Preview() {
         breathRef={breathRef}
         fogRef={fogRef}
         status={fogWarn ? { title: 'VISOR FOGGING', message: 'Slow down to clear it' } : null}
+        fastForward={fast ? FAST_FORWARD : null}
+        compassRef={compassRef}
       />
       </div>
       {mode === 'base' && (
