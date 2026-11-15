@@ -9,11 +9,15 @@
 //   left stick  = WASD (walk where you look)     right stick = snap turn 30°
 //   grip        = Shift (faster)                  A / X or trigger = E (start an objective, accept, airlock, hatch)
 //   B / Y held  = F (fast-forward)                left stick click = show the controls again
-// The HTML/SVG HUD can't be drawn inside an immersive session, so a small panel floats in front of you instead.
+// The HTML/SVG HUD can't be drawn inside an immersive session, so the same HUD is rebuilt in 3D (vrHud.ts): a curved
+// visor band in front of you with the objectives, alert, O₂ and BODY bars, and the compass.
 // It opens on a short controls tutorial (VR_TUTORIAL); the first A / X / trigger press closes it.
 
 import * as THREE from 'three';
 import {VRButton} from 'three/addons/webxr/VRButton.js';
+import {createVRHud, type HudLine, type VRHudModel} from './vrHud.ts';
+
+export type {HudLine, VRHudModel} from './vrHud.ts';
 
 export interface XRInput {
     forward: number;
@@ -21,8 +25,6 @@ export interface XRInput {
     run: boolean;
     fast: boolean
 }
-
-export type HudLine = { text: string; level?: 'ok' | 'warning' | 'danger' };
 
 export interface XRRig {
     readonly presenting: boolean;
@@ -33,14 +35,13 @@ export interface XRRig {
     update(dt: number): void;
 
     /** Draw `scene` for the headset, eyes at the game camera (feet `eyeHeight` below it); then copy the head's look into it. */
-    render(scene: THREE.Scene, game: THREE.PerspectiveCamera, eyeHeight: number, hud: HudLine[]): void;
+    render(scene: THREE.Scene, game: THREE.PerspectiveCamera, eyeHeight: number, hud: VRHudModel): void;
 
     dispose(): void;
 }
 
 const SNAP = Math.PI / 6; // 30° per snap turn
 const DEAD = 0.15; // thumbstick dead zone
-const HUD_COLOURS = {ok: '#dff6ff', warning: '#ffd60a', danger: '#ff5a4f'};
 
 /** Shown when you enter VR, and again on a left stick click. */
 export const VR_TUTORIAL: HudLine[] = [
@@ -141,46 +142,9 @@ export function createXRRig(renderer: THREE.WebGLRenderer, events: {
     const input: XRInput = {forward: 0, side: 0, run: false, fast: false};
     let yaw = 0, aligned = false, pads = newPadState();
 
-    // ---- floating HUD panel: a canvas texture, redrawn only when its text changes
-    const canvas = document.createElement('canvas');
-    canvas.width = 1024;
-    canvas.height = 512; // room for the 6-line tutorial; shorter HUDs only fill the top
-    const ctx = canvas.getContext('2d')!;
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const panel = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.8, 0.4),
-        new THREE.MeshBasicMaterial({
-            map: texture,
-            transparent: true,
-            depthTest: false,
-            depthWrite: false,
-            toneMapped: false
-        }),
-    );
-    panel.renderOrder = 999; // always on top, like a visor display
-    panel.frustumCulled = false;
-    let hudKey = '', hudYaw = 0;
-    const drawHud = (lines: HudLine[]) => {
-        const key = lines.map((l) => `${l.level}|${l.text}`).join('\n');
-        if (key === hudKey) return;
-        hudKey = key;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const shown = lines.slice(0, 7);
-        if (shown.length) {
-            ctx.fillStyle = 'rgba(8, 16, 24, 0.66)';
-            ctx.beginPath();
-            ctx.roundRect(4, 4, canvas.width - 8, 30 + shown.length * 66, 28);
-            ctx.fill();
-            ctx.font = '600 40px system-ui, sans-serif';
-            ctx.textBaseline = 'middle';
-            shown.forEach((l, i) => {
-                ctx.fillStyle = HUD_COLOURS[l.level ?? 'ok'];
-                ctx.fillText(l.text, 36, 50 + i * 66, canvas.width - 72);
-            });
-        }
-        texture.needsUpdate = true;
-    };
+    // ---- the helmet HUD in 3D (vrHud.ts), following where you face
+    const hud = createVRHud();
+    let hudYaw = 0;
 
     const reset = () => Object.assign(input, {forward: 0, side: 0, run: false, fast: false});
     const onStart = () => {
@@ -190,7 +154,7 @@ export function createXRRig(renderer: THREE.WebGLRenderer, events: {
     };
     const onEnd = () => {
         reset();
-        panel.removeFromParent();
+        hud.group.removeFromParent();
         events.onEnd();
     };
     renderer.xr.addEventListener('sessionstart', onStart);
@@ -214,16 +178,16 @@ export function createXRRig(renderer: THREE.WebGLRenderer, events: {
             if (action) events.onAction();
             hudYaw += Math.atan2(Math.sin(yawOf(head.getWorldQuaternion(q)) - hudYaw), Math.cos(yawOf(q) - hudYaw)) * Math.min(1, dt * 3);
         },
-        render(scene, game, eyeHeight, hud) {
+        render(scene, game, eyeHeight, model) {
             rig.position.set(game.position.x, game.position.y - eyeHeight, game.position.z);
             rig.rotation.set(0, yaw, 0);
             rig.updateMatrixWorld(true);
-            // HUD: 1.2 m ahead, a little below the eyes, gently following where you face (not glued to the head).
-            drawHud(pads.tutorial ? VR_TUTORIAL : hud);
-            if (panel.parent !== scene) scene.add(panel);
+            // HUD: a visor band round your eyes, a little low, gently following where you face (not glued to the head).
+            hud.update(pads.tutorial ? {...model, tutorial: VR_TUTORIAL} : model);
+            if (hud.group.parent !== scene) scene.add(hud.group);
             head.getWorldPosition(headPos);
-            panel.position.set(headPos.x - Math.sin(hudYaw) * 1.2, headPos.y - 0.28, headPos.z - Math.cos(hudYaw) * 1.2);
-            panel.rotation.set(-0.22, hudYaw, 0, 'YXZ');
+            hud.group.position.set(headPos.x, headPos.y - 0.08, headPos.z);
+            hud.group.rotation.set(0, hudYaw, 0);
             renderer.render(scene, head);
             head.getWorldQuaternion(q);
             if (!aligned) {
@@ -240,10 +204,7 @@ export function createXRRig(renderer: THREE.WebGLRenderer, events: {
             renderer.xr.removeEventListener('sessionstart', onStart);
             renderer.xr.removeEventListener('sessionend', onEnd);
             void renderer.xr.getSession()?.end();
-            panel.removeFromParent();
-            panel.geometry.dispose();
-            (panel.material as THREE.Material).dispose();
-            texture.dispose();
+            hud.dispose();
         },
     };
 }

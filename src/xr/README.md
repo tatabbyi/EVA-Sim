@@ -1,6 +1,7 @@
 # WebXR headset mode (Owner: Nanda)
 
-Code: `xrRig.ts` (rig, controllers, floating HUD, tutorial). Notes: research/04 (WebXR). No post-processing in VR;
+Code: `xrRig.ts` (rig, controllers, tutorial) and `vrHud.ts` (the helmet HUD rebuilt in 3D: a curved visor band with
+the same objectives, alert, O₂ and BODY bars and compass as the web HUD, fed from the same props). Notes: research/04 (WebXR). No post-processing in VR;
 outlines live in `src/terrain/material.ts`.
 
 ## Using it

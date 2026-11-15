@@ -27,7 +27,7 @@ import type { SiteShaping } from '../terrain/siteShaping';
 import { createRoutePath, type RoutePath } from '../terrain/routePath';
 import { createSampleSite } from '../terrain/sampleSite';
 import { abradeTask, coreTask, createDepotTask, createLaserTask, createMoxieTask, createPanoramaTask, type TaskKind, type TaskSite } from '../terrain/tasks';
-import { HelmetHud, type HudAlert, type SuitBar } from '../ui/HelmetHud';
+import { HelmetHud, type HudAlert, type Level, type SuitBar } from '../ui/HelmetHud';
 import { createHudCompass, type CompassTarget } from '../ui/hudCompass';
 import { createHeadSway } from '../ui/headSway';
 import { defaultTerrainPreset, palette, terrainPresets, type TerrainPresetName } from '../ui/palette';
@@ -37,7 +37,7 @@ import type { XZ } from '../shared/coords';
 import { createAdaptiveResolution } from '../shared/perf';
 import { createVisorLens } from '../terrain/visorLens';
 import { createHelmetInterior } from '../terrain/helmetInterior';
-import { addVRButton, createXRRig, type HudLine } from '../xr/xrRig';
+import { addVRButton, createXRRig, type VRHudModel } from '../xr/xrRig';
 import { createRockField, type RockField } from '../terrain/rockField';
 import { createSunShadows, type SunShadows } from '../terrain/shadows';
 import { createGlassPath } from '../ui/glassPath';
@@ -202,8 +202,8 @@ export function Preview() {
   // Inside the base walking about, seated at the console, or out on the EVA.
   const modeRef = useRef<'base' | 'console' | 'eva'>(DEMO && DEMO !== 'console' && DEMO !== 'suit' ? 'eva' : 'base');
   const leaveConsoleRef = useRef<() => void>(() => {});
-  // What the in-headset HUD panel shows besides oxygen and the next target (set each render from the HUD's state).
-  const vrRef = useRef<{ alert: HudAlert | null; timer: HudLine | null }>({ alert: null, timer: null });
+  // The web HUD's props, handed to the 3D headset HUD (src/xr/vrHud.ts) each render, so both show the same thing.
+  const vrRef = useRef<Omit<VRHudModel, 'outdoors' | 'compass' | 'prompt' | 'tutorial'> | null>(null);
   const launchRef = useRef<() => string | null>(() => null); // go out through the airlock; returns why not, if not
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const beginEvaRef = useRef<(chosen: boolean[], plan: TourPlan | null) => void>(() => {});
@@ -1010,22 +1010,13 @@ export function Preview() {
     const marker = new THREE.Vector3();
     const lookDir = new THREE.Vector3();
     let fpsFrames = 0, fpsTime = 0;
-    // Headset HUD panel lines: oxygen, the next target and its distance, the objective clock, then the alert or prompt.
-    const vrHud = (): HudLine[] => {
-      const lines: HudLine[] = [], v = vrRef.current;
-      if (modeRef.current === 'eva') {
-        const s = runtimeEngine?.getSnapshot(), g = s?.resources.oxygenGrams, cap = s?.resources.oxygenCapacityGrams;
-        const warn = s?.physics?.oxygenWarning;
-        if (g != null && cap) lines.push({ text: `O₂ ${Math.round(g)} / ${cap} g · ${Math.round((100 * g) / cap)}%`, level: warn === 'low' ? 'warning' : warn === 'critical' || warn === 'depleted' ? 'danger' : 'ok' });
-        const ni = homeBound ? -1 : nextObjective(), next = ni >= 0 ? tasks[ni] : null, pos = next ? next.anchor : base?.door;
-        if (pos) lines.push({ text: `${next ? next.title : 'Base airlock'} · ${Math.round(Math.hypot(pos.x - camera.position.x, pos.z - camera.position.z))} m` });
-        if (v.timer) lines.push(v.timer);
-      }
-      const a = v.alert;
-      if (a) lines.push({ text: `${a.title}: ${a.message}${a.onAccept ? '   [A]' : ''}`, level: a.level === 'info' ? 'ok' : a.level });
-      else if (modeRef.current !== 'eva' && lastPrompt)
-        lines.push({ text: lastPrompt.replace(/^E ·/, 'A ·').replace(/^Click · use the console/, 'Console: plan outside VR (a plan is set)') });
-      return lines;
+    // Headset HUD (src/xr/vrHud.ts): the web HUD's props, plus the compass from the render loop and the base prompt.
+    let vrCompass: VRHudModel['compass'] = null;
+    const vrHud = (): VRHudModel => {
+      const outdoors = modeRef.current === 'eva', web = vrRef.current;
+      const prompt = outdoors ? null : lastPrompt.replace(/^E ·/, 'A ·').replace(/^Click · use the console/, 'Console: plan outside VR (a plan is set)') || null;
+      const empty = { label: '', value: '', fraction: 0 };
+      return { objectives: { done: 0, total: 0 }, alert: null, o2: empty, temperature: empty, ...web, outdoors, compass: outdoors ? vrCompass : null, prompt };
     };
     // Desktop: through the visor lens (a post-process). Headset: straight to the eyes (post-processing breaks WebXR).
     const draw = (scn: THREE.Scene, eye: number) => {
@@ -1252,6 +1243,7 @@ export function Preview() {
         if (next) marks.push({ kind: 'objective', bearing: bearingTo(next.anchor), label: `${Math.round(Math.hypot(next.anchor.x - cx, next.anchor.z - cz))} M` });
         if (base) marks.push({ kind: 'base', bearing: bearingTo(base.door) });
         compass.update(Math.atan2(lookDir.x, -lookDir.z), marks);
+        vrCompass = { heading: Math.atan2(lookDir.x, -lookDir.z), targets: marks }; // the headset HUD's compass too
       }
       // AR objective marker: projected onto the glass over the next objective (or the airlock on the way home)
       const targetEl = targetRef.current;
@@ -1444,10 +1436,19 @@ export function Preview() {
     return [{ title, time: left >= 0 ? clock(left) : `+${clock(-left)}`, state: 'current', level: left < 0 ? 'danger' : left < 60 ? 'warning' : 'ok' }];
   });
   if (headingHome) items.push({ title: 'Return to base', time: clock(secondsLeft), state: 'current' });
-  const currentItem = items.find((it) => it.state === 'current');
-  vrRef.current = { alert, timer: currentItem ? { text: `${currentItem.title} · ${currentItem.time}`, level: currentItem.level } : null };
   const listTotal = objTitles.filter((_, i) => chosen[i]).length;
   const listDone = objTitles.filter((_, i) => chosen[i] && objDone[i]).length;
+  const hudObjectives = {
+    done: listDone,
+    total: listTotal,
+    items,
+    returnTime: clock(secondsLeft),
+    returnLevel: (secondsLeft < 60 ? 'danger' : secondsLeft < 300 ? 'warning' : 'ok') as Level,
+  };
+  const hudO2 = physicalHud?.o2 ?? { label: 'O₂', value: 'N/A', fraction: 0 };
+  const hudStatus = fogWarn ? { title: 'VISOR FOGGING', message: 'Slow down to clear it' } : null;
+  // The same props drive the 3D HUD in the headset (src/xr/vrHud.ts).
+  vrRef.current = { objectives: hudObjectives, alert, o2: hudO2, temperature: tempBar(sample.tempC), status: hudStatus, fastForward: fast ? FAST_FORWARD : null };
 
   // ---- the Setup console: missions with their numbers, and the plan's totals. The route is Nanda's planner (cheapest
   // visiting order, weaving round the hills); oxygen and time come from Alex's physics along that route (grams).
@@ -1518,15 +1519,9 @@ export function Preview() {
       <div className={mode === 'eva' ? undefined : 'preview-hidden'}>
       <div ref={glassRef} className="preview-glass" />
       <HelmetHud
-        objectives={{
-          done: listDone,
-          total: listTotal,
-          items,
-          returnTime: clock(secondsLeft),
-          returnLevel: secondsLeft < 60 ? 'danger' : secondsLeft < 300 ? 'warning' : 'ok',
-        }}
+        objectives={hudObjectives}
         alert={alert}
-        o2={physicalHud?.o2 ?? { label: 'O₂', value: 'N/A', fraction: 0 }}
+        o2={hudO2}
         temperature={tempBar(sample.tempC)}
         swayTargetRef={swayRef}
         sheenRef={sheenRef}
@@ -1534,7 +1529,7 @@ export function Preview() {
         interiorRef={interiorRef}
         breathRef={breathRef}
         fogRef={fogRef}
-        status={fogWarn ? { title: 'VISOR FOGGING', message: 'Slow down to clear it' } : null}
+        status={hudStatus}
         fastForward={fast ? FAST_FORWARD : null}
         compassRef={compassRef}
       />
