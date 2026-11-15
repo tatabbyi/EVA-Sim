@@ -3,11 +3,14 @@
 // Built from modules (habitat, airlock, greenhouse, solar field, lander, comms mast, rover), each a function that
 // adds its parts and marks the ground it covers. The base will be expanded later: add a module function to MODULES
 // (or a new one for an interior) and it is placed, lit, shadowed and kept clear of loose rocks like the rest.
+// Still parts are joined into one mesh per material when the base is built; give anything that moves its motion with
+// animate(part, step) so it stays separate.
 // Look: real hardware, not toy shapes. Painted panels with seams and rivets, red dust built up on everything low
 // down, solar cells, gold foil insulation, cables lying on the ground.
 
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createNoiseTexture } from './noiseTexture';
 
 export interface SpaceBase {
@@ -149,6 +152,54 @@ function treadTexture() {
   }, true);
 }
 
+// ---------- drawing the still parts together ----------
+
+/**
+ * The base is hundreds of small parts, and drawing each on its own (twice a frame: once for the view, once for the sun
+ * shadow) was most of the drawing work outdoors. This joins the still, solid parts that share a material and shadow
+ * settings into one mesh each, in root's frame: same shapes, same places, same materials, so it looks the same.
+ * Parts in `moving` (or inside a moving group), see-through parts and parts with their own draw order stay separate.
+ * root's world matrices must be up to date. Joined geometry goes into disposables; the parts' own geometry is freed.
+ */
+function mergeStillParts(root: THREE.Object3D, moving: Set<THREE.Object3D>, disposables: { dispose(): void }[]): void {
+  const toRoot = root.matrixWorld.clone().invert();
+  const batches = new Map<string, { mesh: THREE.Mesh; matrix: THREE.Matrix4 }[]>();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || Array.isArray(m.material) || m.material.transparent || m.renderOrder !== 0) return;
+    for (let p: THREE.Object3D | null = m; p && p !== root; p = p.parent) if (moving.has(p)) return;
+    const matrix = toRoot.clone().multiply(m.matrixWorld);
+    if (matrix.determinant() <= 0) return; // a mirrored part would turn inside out when joined
+    const g = m.geometry;
+    if (Object.keys(g.morphAttributes).length || g.drawRange.start !== 0 || g.drawRange.count !== Infinity) return;
+    const attributes = Object.keys(g.attributes).sort().map((k) => `${k}:${g.attributes[k].itemSize}`).join(',');
+    const key = `${m.material.uuid}|${m.castShadow}|${m.receiveShadow}|${g.index ? 'indexed' : 'plain'}|${attributes}`;
+    const batch = batches.get(key) ?? [];
+    batch.push({ mesh: m, matrix });
+    batches.set(key, batch);
+  });
+  const freed = new Set<unknown>();
+  for (const parts of batches.values()) {
+    if (parts.length < 2) continue;
+    const placed = parts.map(({ mesh, matrix }) => mesh.geometry.clone().applyMatrix4(matrix));
+    const joined = mergeGeometries(placed, false);
+    for (const g of placed) g.dispose();
+    if (!joined) continue; // couldn't be joined: leave these parts as they are
+    const first = parts[0].mesh;
+    const mesh = new THREE.Mesh(joined, first.material);
+    mesh.castShadow = first.castShadow;
+    mesh.receiveShadow = first.receiveShadow;
+    root.add(mesh);
+    disposables.push(joined);
+    for (const { mesh: part } of parts) {
+      part.removeFromParent();
+      part.geometry.dispose();
+      freed.add(part.geometry);
+    }
+  }
+  for (let i = disposables.length - 1; i >= 0; i--) if (freed.has(disposables[i])) disposables.splice(i, 1);
+}
+
 // ---------- the base ----------
 
 /**
@@ -161,6 +212,12 @@ export function createSpaceBase(centre: THREE.Vector3, facing: THREE.Vector3, he
   const disposables: { dispose(): void }[] = [];
   const keep = <T extends { dispose(): void }>(x: T) => (disposables.push(x), x);
   const animations: ((t: number) => void)[] = [];
+  const moving = new Set<THREE.Object3D>(); // parts that animate: they stay their own meshes when the still parts are joined
+  /** Animates a part every frame. Use this (not animations directly) so the part is kept out of the joined meshes. */
+  const animate = (part: THREE.Object3D, step: (t: number) => void) => {
+    moving.add(part);
+    animations.push(step);
+  };
   const footprint: { x: number; z: number; r: number }[] = []; // local frame, filled by each module
 
   const grime = keep(createNoiseTexture(256, 41, 6));
@@ -286,7 +343,7 @@ export function createSpaceBase(centre: THREE.Vector3, facing: THREE.Vector3, he
     const porch = new THREE.PointLight('#ffe1b3', 10, 16, 2);
     porch.position.set(0, gA + 3.1, 8);
     local.add(porch);
-    animations.push((t) => doorLight.scale.setScalar(0.85 + 0.15 * Math.sin(t * 2)));
+    animate(doorLight, (t) => doorLight.scale.setScalar(0.85 + 0.15 * Math.sin(t * 2)));
     footprint.push({ x: 0, z: 5.5, r: 2.2 }, { x: -2.2, z: 7.2, r: 0.5 }, { x: 2.2, z: 7.2, r: 0.5 });
   };
 
@@ -363,7 +420,7 @@ export function createSpaceBase(centre: THREE.Vector3, facing: THREE.Vector3, he
       put(new THREE.CylinderGeometry(0.45, 0.55, 0.14, 20), darkMetal, 0, 0.07 + (ground(18 + Math.sin(a + Math.PI / 4) * 3.4, -6 + Math.cos(a + Math.PI / 4) * 3.4) - gL), 3.4, leg);
     }
     landerBeacon = put(new THREE.SphereGeometry(0.1, 12, 8), red, 0, 10.15, 0, L);
-    animations.push((t) => (landerBeacon.visible = Math.sin(t * 3) > 0.6));
+    animate(landerBeacon, (t) => (landerBeacon.visible = Math.sin(t * 3) > 0.6));
     footprint.push({ x: 18, z: -6, r: 4.2 });
   };
 
@@ -383,7 +440,7 @@ export function createSpaceBase(centre: THREE.Vector3, facing: THREE.Vector3, he
     dish.rotation.set(-1.0, 0.5, 0);
     put(new THREE.CylinderGeometry(0.02, 0.02, 0.9, 6), steel, x + 0.25, gM + 8.9, z + 0.3).rotation.x = -1.0;
     mastLight = put(new THREE.SphereGeometry(0.07, 10, 8), red, x, gM + 9.1, z);
-    animations.push((t) => (mastLight.visible = Math.sin(t * 3) <= 0.6));
+    animate(mastLight, (t) => (mastLight.visible = Math.sin(t * 3) <= 0.6));
     cableOnGround([[x, z], [4.5, 1.2], [3.9, 0.6]]);
     footprint.push({ x, z, r: 1.4 });
   };
@@ -449,7 +506,7 @@ export function createSpaceBase(centre: THREE.Vector3, facing: THREE.Vector3, he
       arm.rotation.set(0, -a, Math.PI / 2);
       put(new THREE.SphereGeometry(0.045, 10, 8, 0, Math.PI), plain, Math.cos(a) * 0.3, 0, Math.sin(a) * 0.3, cups).rotation.y = -a;
     }
-    animations.push((t) => (cups.rotation.y = t * 2.5));
+    animate(cups, (t) => (cups.rotation.y = t * 2.5));
     put(new THREE.TorusGeometry(0.62, 0.06, 10, 40), darkMetal, 0, g0 + 8.98, 0).rotation.x = Math.PI / 2;
     put(new THREE.CylinderGeometry(0.58, 0.58, 0.06, 32), plain, 0, g0 + 9.0, 0);
     // Suitports on the airlock tunnel: two suit backpacks docked to the outside wall
@@ -484,6 +541,7 @@ export function createSpaceBase(centre: THREE.Vector3, facing: THREE.Vector3, he
   });
 
   local.updateMatrixWorld(true);
+  mergeStillParts(local, moving, disposables); // one draw per material instead of one per part
   const door = new THREE.Vector3(0, 0, 8.6).applyMatrix4(local.matrixWorld);
   door.y = heightAt(door.x, door.z);
   const clear = footprint.map((f) => ({ ...toWorld(f.x, f.z), r: f.r }));
