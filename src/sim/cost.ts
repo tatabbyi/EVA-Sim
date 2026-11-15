@@ -44,5 +44,6 @@ export function evaluateRoute(points: { x: number; z: number }[], heightAt = ter
   return { segments, totals };
 }
 
-/** O2 litres from (x, z) to the airlock on the cheapest route. Infinity if unreachable, NaN before the planner is ready. */
+/** O2 from (x, z) to the airlock on the cheapest route, in the planner's unit (grams: the game plans with the physics).
+ * Infinity if unreachable, NaN before the planner is ready. */
 export const o2ToHomeAt = (x: number, z: number) => (home ? home(x, z) : NaN);

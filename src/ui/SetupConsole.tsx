@@ -277,7 +277,7 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
                   <dd>
                     {Math.floor(levels.odds.success * 100)}%{' '}
                     <span className="plan-sub">
-                      of 1,000 simulated EVAs got home on time with O₂ to spare · safest of {levels.odds.compared} visiting orders
+                      of 1,000 simulated EVAs got home on time with O₂ to spare (assumed leak, fall and dust rates, not NASA data) · safest of {levels.odds.compared} visiting orders
                       {levels.odds.mainCause ? ` · main risk: ${levels.odds.mainCause}` : ''}
                     </span>
                   </dd>

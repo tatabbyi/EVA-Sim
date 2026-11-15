@@ -46,14 +46,16 @@ import { SetupConsole, type SetupLevels, type SetupMission } from '../ui/SetupCo
 import { createBaseInterior, ROOM_EYE } from '../terrain/baseInterior';
 import { createEngine, type Engine } from '../core/engine';
 import type { DeepReadonly, EngineSnapshot, Mission, Region, TaskId } from '../core/contracts';
-import { estimateEVA } from '../adapters/eva-demo';
+import { estimateEVA, RESERVE_MINUTES } from '../adapters/eva-demo';
 import { gramsPerHour, MARS_EVA_DEMO_PROFILE } from '../core/physics';
 import { toHelmetHud } from '../adapters/hud';
 import { createActiveTerrain } from '../adapters/active-terrain';
 import { createFixedClock } from '../adapters/clock';
 import { applyRouteCandidate } from '../adapters/routes';
 import type { HeightProvider } from '../adapters/world';
-import { buildLattice, costFrom, distanceToPath, pathLength, planTour, type TourPlan } from '../sim/pathfind';
+import { buildLattice, costFrom, distanceToPath, pathLength, planTour, rankTours, type TourPlan } from '../sim/pathfind';
+import { physicsWalk, walkPiece } from '../sim/physicsWalk';
+import { buildSteps, safestTour, simulate, type Odds } from '../sim/survival';
 import { createPathPlanner, type PathPlanner } from '../sim/planner';
 import { setCostTerrain, setHomeCost } from '../sim/cost';
 import './Preview.css';
@@ -91,6 +93,11 @@ const OFF_ROUTE_M = 10; // farther than this from the guide: re-plan from where 
 const REPLAN_EVERY_S = 0.5; // how often to check
 /** Plans from any point through objectives `todo` (cheapest order), counting the walk home unless toHome is false. */
 type PlanFrom = (from: XZ, todo: number[], toHome?: boolean) => TourPlan | null;
+/** Survival Odds (src/sim/survival.ts): the safest of the cheapest visiting orders, with its odds. */
+type SafestFrom = (from: XZ, todo: number[]) => { plan: TourPlan; odds: Odds; compared: number } | null;
+const CANDIDATE_ORDERS = 6; // visiting orders compared (a two-objective mission has 2)
+// The planner and the odds cost walking with the engine's own physics (grams), the same model that spends the suit's O2.
+const WALK_MODEL = physicsWalk(MARS_EVA_DEMO_PROFILE, 0); // 0 kg carried, as the engine is created below
 /** The site with no shaping (true-scale terrain, for ?terrain=real). */
 const TRUE_SCALE: SiteShaping = { centre: BASE_AT, closer: 1, hills: 1, landforms: 1, padRadius: 0, padBlend: 1 };
 const TASK_TITLES: Record<TaskKind, string> = {
@@ -117,6 +124,8 @@ const STOPS: XZ[] = TASK_PLAN.map(({ at: k, offset }) => {
 // ?demo=suit: start in the base looking at your suit on its stand by the hatch.
 // ?demo=view&x=..&z=..&lx=..&lz=..: stand at (x, z) outside, looking towards (lx, lz) (local metres; to judge the look).
 const PARAMS = new URLSearchParams(window.location.search);
+// This hash selects a page in Root; it is not an anchor within Preview.
+const RAW_DIAGNOSTICS_URL = new URL('#raw', window.location.href).href;
 const DEMO = PARAMS.get('demo');
 // Where the path outline is drawn: 'world' (3D arrows on the ground) or 'glass' (projected onto the visor).
 const OUTLINE_START: 'world' | 'glass' = PARAMS.get('outline') === 'glass' ? 'glass' : 'world';
@@ -189,6 +198,7 @@ export function Preview() {
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const beginEvaRef = useRef<(chosen: boolean[], plan: TourPlan | null) => void>(() => {});
   const planRef = useRef<PlanFrom | null>(null); // the path planner, once its fields are ready
+  const safestRef = useRef<SafestFrom | null>(null);
   const straightRef = useRef<(pts: XZ[]) => XZ[]>((p) => p); // straight out of the airlock (set in the scene)
   const enterBaseRef = useRef<() => void>(() => {});
   const evaStartRef = useRef(0);
@@ -537,9 +547,15 @@ export function Preview() {
         tasks: missionTasks,
         route: { source: 'demo', points: distinctRoute },
       };
+      if (!routeTerrain) {
+        setNotice({ level: 'danger', title: 'MISSION UNAVAILABLE', message: 'Validated terrain unavailable' });
+        return null;
+      }
+      if (missionTasks.length !== 2) {
+        setNotice({ level: 'danger', title: 'MISSION UNAVAILABLE', message: 'Select exactly two valid official objectives' });
+        return null;
+      }
       try {
-        if (!routeTerrain) throw Error('Validated terrain unavailable');
-        if (missionTasks.length !== 2) throw Error('Select exactly two valid official objectives');
         const terrainAt = routeTerrain.heightAt;
         // Walkable: real terrain, outside the base (the 3 m round the airlock door are open, like the path planner's).
         const door = base?.door;
@@ -807,12 +823,18 @@ export function Preview() {
           alignX: -half,
           alignZ: -half,
           isBlocked: (x, z) => theBase.keepClear(x, z, 0.75) && Math.hypot(x - door0.x, z - door0.z) > 3,
+          model: WALK_MODEL,
         });
         pathPlanner = createPathPlanner(L);
         const [home, ...fields] = await Promise.all([door0, ...STOPS].map((g) => pathPlanner!.field(g)));
         planFrom = (from, todo, toHome = true) => planTour(L, fields, toHome ? home : null, from, todo);
         setHomeCost((x, z) => costFrom(L, home, { x, z }));
-        // (Survival Odds, src/sim/survival.ts, are left out until they use the physics' grams.)
+        // Survival Odds in grams: each candidate order walked 1,000 times (scenario rates from research/03, not NASA data).
+        const suit = { tank: WALK_MODEL.tank, reserve: WALK_MODEL.restPerMin * RESERVE_MINUTES, restPerMin: WALK_MODEL.restPerMin, limitMin: EVA_MINUTES };
+        const task = (i: number) => ({ minutes: TASK_PLAN[i].minutes, o2PerMin: WALK_MODEL.taskPerMin });
+        const piece = (a: XZ, b: XZ) => walkPiece(WALK_MODEL, groundAt, a, b);
+        safestRef.current = (from, todo) =>
+          safestTour(rankTours(L, fields, home, from, todo, CANDIDATE_ORDERS), (p) => simulate(buildSteps(p, task, piece), suit, (q) => costFrom(L, home, q)));
       } catch (err) {
         console.warn('Path planner unavailable', err);
       }
@@ -1375,11 +1397,13 @@ export function Preview() {
   }));
   const planIdx = TASK_PLAN.map((_, i) => i).filter((i) => chosen[i] && !objDone[i]);
   const planKey = planIdx.join(',');
-  // The planned EVA: airlock → the two picked objectives → airlock, in the cheapest visiting order.
-  const tour = useMemo(
-    () => (plannerReady && planKey ? planRef.current?.(door, planKey.split(',').map(Number)) ?? null : null),
+  // The planned EVA: airlock → the two picked objectives → airlock, in the visiting order most likely to get you home
+  // (Survival Odds over the cheapest orders, all in the physics' grams).
+  const safest = useMemo(
+    () => (plannerReady && planKey ? safestRef.current?.(door, planKey.split(',').map(Number)) ?? null : null),
     [plannerReady, door, planKey],
   );
+  const tour = safest?.plan ?? null;
   const setupRoute: XZ[] = useMemo(() => (tour ? straightRef.current([...tour.points, ...tour.back.slice(1)]) : [door]), [tour, door]);
   const routeTo = tour ? setupRoute.length - 1 : -1; // the whole route is the plan
   // Oxygen (grams) and time from the physics along the planned route (src/adapters/eva-demo.ts estimateEVA).
@@ -1389,11 +1413,12 @@ export function Preview() {
       const b = terrainProvider.bounds;
       const bounds = { minX: b.minX + 100, maxX: b.maxX - 100, minZ: b.minZ + 100, maxZ: b.maxZ - 100 };
       const taskMinutes = planIdx.reduce((a, i) => a + TASK_PLAN[i].minutes, 0);
-      return { levels: estimateAlongRoute(setupRoute, terrainProvider.heightAt, bounds, taskMinutes), planError: null };
+      const odds = safest ? { ...safest.odds, compared: safest.compared } : null;
+      return { levels: { ...estimateAlongRoute(setupRoute, terrainProvider.heightAt, bounds, taskMinutes), odds }, planError: null };
     } catch (error) {
       return { levels: null, planError: error instanceof Error ? error.message : String(error) };
     }
-  }, [terrainProvider, tour, setupRoute, planKey, mode]);
+  }, [terrainProvider, tour, safest, setupRoute, planKey, mode]);
   const planFits = !!levels && levels.walkGrams + levels.taskGrams + levels.reserveGrams <= levels.tankGrams && levels.minutes <= levels.evaMinutes;
   const launchWhy = !heightsLoaded
     ? 'Terrain still loading…'
@@ -1452,13 +1477,13 @@ export function Preview() {
           <div>Elapsed {runtimeSnapshot?.simTimeSeconds.toFixed(1)} s · X {runtimeSnapshot?.player.position.x.toFixed(2)} · Z {runtimeSnapshot?.player.position.z.toFixed(2)} m · BODY TEMP: VISUAL DEMO</div>
           <div>Terrain: demo-shaped HiRISE-derived</div>
           <button onClick={() => { const e = runtimeRef.current; if (!e) return; e.dispatch({ type: e.getSnapshot().paused ? 'resume' : 'pause' }); runtimePausedRef.current = e.getSnapshot().paused; if (runtimePausedRef.current) document.exitPointerLock(); setRuntimeSnapshot(e.getSnapshot()); }}>{runtimeSnapshot?.paused ? 'Resume' : 'Pause'}</button>
-          <button onClick={() => { if (window.location.search) window.location.replace(window.location.pathname + window.location.hash); else window.location.reload(); }}>Reset to base</button> <a href="#raw">RAW diagnostics</a>
+          <button onClick={() => { if (window.location.search) window.location.replace(window.location.pathname + window.location.hash); else window.location.reload(); }}>Reset to base</button> <a href={RAW_DIAGNOSTICS_URL}>RAW diagnostics</a>
         </div>
       )}
       {mode === 'base' && (
         <details style={{ position: 'absolute', bottom: 8, left: 12, zIndex: 20, color: 'white' }}>
           <summary>Developer test {PARAMS.get('emergency') === '1' ? '· TEST: 2 g EMERGENCY ACTIVE' : ''}</summary>
-          <a href="?emergency=1#preview">TEST: 2 g emergency oxygen on next EVA</a> · <a href="#raw">RAW diagnostics</a>
+          <a href="?emergency=1">TEST: 2 g emergency oxygen on next EVA</a> · <a href={RAW_DIAGNOSTICS_URL}>RAW diagnostics</a>
         </details>
       )}
       {mode === 'base' && (

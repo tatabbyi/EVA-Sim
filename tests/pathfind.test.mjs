@@ -5,7 +5,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { kcalPerMetre, evaluateRoute, MAX_GRADE } from '../src/sim/cost.ts';
-import { buildLattice, computeField, costFrom, pathFrom, planTour, lineLitres, pathLength } from '../src/sim/pathfind.ts';
+import { buildLattice, computeField, costFrom, pathFrom, planTour, lineCost, pathLength } from '../src/sim/pathfind.ts';
+import { physicsWalk } from '../src/sim/physicsWalk.ts';
+import { MARS_EVA_DEMO_PROFILE } from '../src/core/physics.ts';
 
 const B = { minX: -200, maxX: 200, minZ: -200, maxZ: 200 };
 /** Terrain defined at 4 m samples (aligned to B) and bilinear in between, like the game's height grid. */
@@ -39,7 +41,7 @@ test('cost model matches research/02 test values (0°, 10°, 20°)', () => {
 test('direction-aware: walking up a slope costs more than walking down it', () => {
   const ramp = (x) => x * 0.1; // 10% grade, rising east
   const L = buildLattice((x) => ramp(x), B, 4);
-  const up = lineLitres(L, { x: -100, z: 0 }, { x: 100, z: 0 }), down = lineLitres(L, { x: 100, z: 0 }, { x: -100, z: 0 });
+  const up = lineCost(L, { x: -100, z: 0 }, { x: 100, z: 0 }), down = lineCost(L, { x: 100, z: 0 }, { x: -100, z: 0 });
   assert.ok(up > down * 1.5, `up ${up} vs down ${down}`);
 });
 
@@ -68,12 +70,12 @@ test('a path can start from ANY point, and blocked ground is avoided', () => {
     for (let i = 1; i < pts.length; i++) assert.ok(Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z) <= 4 + 1e-9, 'densified');
     for (const p of pts) assert.ok(Math.hypot(p.x, p.z) > 38, `stays out of the blocked disc: ${JSON.stringify(p)}`);
     // Smoothing never makes it much worse than the field's own optimum.
-    assert.ok(lineLitresAlong(L, pts) <= costFrom(L, F, start) * 1.03 + 1e-6);
+    assert.ok(lineCostAlong(L, pts) <= costFrom(L, F, start) * 1.03 + 1e-6);
   }
 });
-function lineLitresAlong(L, pts) {
+function lineCostAlong(L, pts) {
   let w = 0;
-  for (let i = 1; i < pts.length; i++) w += lineLitres(L, pts[i - 1], pts[i], false);
+  for (let i = 1; i < pts.length; i++) w += lineCost(L, pts[i - 1], pts[i], false);
   return w;
 }
 
@@ -99,7 +101,7 @@ test('visiting order is the cheapest over all orders (walk home counted) and det
   };
   const perms = (a) => (a.length <= 1 ? [a] : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((p) => [x, ...p])));
   const best = Math.min(...perms([0, 1, 2, 3]).map(cost));
-  assert.ok(Math.abs(plan.litres - best) < 1e-6, `plan ${plan.litres} vs brute force ${best}`);
+  assert.ok(Math.abs(plan.cost - best) < 1e-6, `plan ${plan.cost} vs brute force ${best}`);
   assert.deepEqual(planTour(L, F, H, home, [0, 1, 2, 3]), plan);
   assert.deepEqual(plan.back[plan.back.length - 1], home);
   // Every objective is on the outbound path, in the planned order.
@@ -112,6 +114,19 @@ test('visiting order is the cheapest over all orders (walk home counted) and det
   // No objectives left: straight home.
   const homeOnly = planTour(L, F, H, { x: 100, z: 100 }, []);
   assert.deepEqual(homeOnly.points[homeOnly.points.length - 1], home);
+});
+
+test('the planner uses the cost model it is given (the physics: grams, 25° cap)', () => {
+  const model = physicsWalk(MARS_EVA_DEMO_PROFILE);
+  const ramp = (x) => x * Math.tan((24.5 * Math.PI) / 180); // between the research/02 cap (24.2°) and the physics cap (25°)
+  const research = buildLattice(ramp, B, 4), physics = buildLattice(ramp, B, 4, { model });
+  assert.equal(lineCost(research, { x: -50, z: 0 }, { x: 50, z: 0 }), Infinity);
+  const grams = lineCost(physics, { x: -50, z: 0 }, { x: 50, z: 0 });
+  assert.ok(Math.abs(grams - 100 * model.perMetre(Math.tan((24.5 * Math.PI) / 180))) < 0.01, `grams ${grams}`);
+  // A field on the physics lattice is in grams: walking 100 m on the flat costs 100 x the flat grams per metre.
+  const flat = buildLattice(() => 0, B, 4, { model });
+  const F = computeField(flat, { x: 100, z: 0 });
+  assert.ok(Math.abs(costFrom(flat, F, { x: 0, z: 0 }) - 100 * model.perMetre(0)) < 1e-3);
 });
 
 const GRID = new URL('../public/grids/height_4m.bin', import.meta.url);
@@ -138,5 +153,5 @@ test('real Jezero 4 m grid: tour from the airlock passes the scene route validat
     validateSceneRoute({ source: 'demo', points: pts }, region, mission, terrain);
     assert.ok(steepestOn(pts, heightAt) <= MAX_GRADE + 0.02);
   }
-  console.log(`Jezero: ${L.cols}x${L.rows} nodes, 5 fields in ${ms.toFixed(0)} ms; tour ${pathLength(plan.points).toFixed(0)} m out + ${pathLength(plan.back).toFixed(0)} m back, ${plan.litres.toFixed(1)} L O2, order ${plan.order.join(' → ')}`);
+  console.log(`Jezero: ${L.cols}x${L.rows} nodes, 5 fields in ${ms.toFixed(0)} ms; tour ${pathLength(plan.points).toFixed(0)} m out + ${pathLength(plan.back).toFixed(0)} m back, ${plan.cost.toFixed(1)} L O2, order ${plan.order.join(' → ')}`);
 });

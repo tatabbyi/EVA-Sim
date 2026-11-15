@@ -10,13 +10,15 @@
 //     planner's cheapest O2-to-home (src/sim/pathfind.ts). This is why the route matters: a route that keeps you
 //     close to the base survives a failure better.
 // Seeded, so the same plan always gives the same odds (no number jumping during a demo).
+// Units: grams of O2, as the engine's physics counts them (the plan is costed with src/sim/physicsWalk.ts). The event rates are research/03 scenario ASSUMPTIONS (docs/physics AUD-08):
+// these are odds under those assumptions, not a measured or NASA survival probability.
 
-import { evaluateRoute } from './cost.ts';
 import type { TourPlan, XZ } from './pathfind.ts';
 
-/** One piece of the EVA: a short walk (to `at`) or a task done at `at`. o2 and seconds are the PLANNED values. */
+/** One piece of the EVA: a short walk (to `at`) or a task done at `at`. o2 (grams) and seconds are the PLANNED values. */
 export interface Step { at: XZ; o2: number; seconds: number; task: boolean }
-export interface Suit { tankL: number; reserveL: number; restLPerMin: number; limitMin: number }
+/** tank and reserve in the plan's O2 unit (grams), restPerMin = O2 per minute standing still, limitMin = EVA time budget. */
+export interface Suit { tank: number; reserve: number; restPerMin: number; limitMin: number }
 export interface Odds {
   runs: number;
   /** Fraction of runs back at the airlock with at least the reserve left. */
@@ -27,7 +29,7 @@ export interface Odds {
   success: number;
   /** Fraction that did every task (no abort). */
   complete: number;
-  /** O2 left at the airlock, litres: 5th, 50th and 95th percentile. */
+  /** O2 left at the airlock (grams): 5th, 50th and 95th percentile. */
   o2Left: [number, number, number];
   /** What went wrong most often in the runs that failed, or null if none failed. */
   mainCause: string | null;
@@ -46,22 +48,23 @@ const DEVIL_WAIT_S = [60, 300];
 const FALLS_PER_TASK_S = 0.15 / 3600; // Apollo 16: 6 falls in ~20 crew-hours, all while working, not walking
 const FALL_DELAY_S = [30, 120];
 const INJURY_P = 0.02; // per fall (illustrative assumption)
+const LEAK_L_TO_UNIT = 1.429; // leak rates above are litres of O2 (EMU spec); 1 L of O2 = 1.429 g (research/10)
 
-/** The plan as steps: each leg's walk (≤ 4 m pieces, real slopes from heightAt), then that objective's task, then home. */
-export function buildSteps(plan: TourPlan, task: (objective: number) => { minutes: number; o2PerMin: number }, heightAt: (x: number, z: number) => number): Step[] {
+/**
+ * The plan as steps: each leg's walk (its ≤ 4 m pieces, costed by `walk`), then that objective's task, then home.
+ * walk(a, b): planned O2 and seconds for one piece (the game uses physicsWalk's walkPiece).
+ */
+export function buildSteps(plan: TourPlan, task: (objective: number) => { minutes: number; o2PerMin: number }, walk: (a: XZ, b: XZ) => { o2: number; seconds: number }): Step[] {
   const steps: Step[] = [];
-  const walk = (pts: XZ[]) => {
-    for (let i = 1; i < pts.length; i++) {
-      const { o2, seconds } = evaluateRoute([pts[i - 1], pts[i]], heightAt).totals;
-      steps.push({ at: pts[i], o2, seconds, task: false });
-    }
+  const walkAll = (pts: XZ[]) => {
+    for (let i = 1; i < pts.length; i++) steps.push({ at: pts[i], ...walk(pts[i - 1], pts[i]), task: false });
   };
   plan.legs.forEach((leg, k) => {
-    walk(leg);
+    walkAll(leg);
     const t = task(plan.order[k]);
     steps.push({ at: leg[leg.length - 1], o2: t.minutes * t.o2PerMin, seconds: t.minutes * 60, task: true });
   });
-  walk(plan.back);
+  walkAll(plan.back);
   return steps;
 }
 
@@ -83,14 +86,14 @@ const triangular = (r: Rng, [a, c, b]: number[]) => {
 };
 
 /**
- * Runs the EVA `runs` times. homeO2(p) = planned O2 litres to walk home from p (the planner's field).
+ * Runs the EVA `runs` times. homeO2(p) = planned O2 to walk home from p (the planner's field, same unit as the steps).
  * The same seed gives the same odds; comparing plans with one seed uses the same luck for each (fairer).
  */
 export function simulate(steps: Step[], suit: Suit, homeO2: (p: XZ) => number, runs = 1000, seed = 2026): Odds {
   const r = mulberry32(seed);
-  const rest = suit.restLPerMin / 60; // litres per second standing still
+  const rest = suit.restPerMin / 60; // O2 per second standing still
   const walking = steps.filter((s) => !s.task);
-  const secondsPerLitre = walking.reduce((a, s) => a + s.seconds, 0) / Math.max(1e-9, walking.reduce((a, s) => a + s.o2, 0));
+  const secondsPerO2 = walking.reduce((a, s) => a + s.seconds, 0) / Math.max(1e-9, walking.reduce((a, s) => a + s.o2, 0));
   const homeCache = new Map<number, number>();
   const home = (i: number) => homeCache.get(i) ?? homeCache.set(i, homeO2(steps[i].at)).get(i)!;
 
@@ -101,11 +104,11 @@ export function simulate(steps: Step[], suit: Suit, homeO2: (p: XZ) => number, r
     const work = Math.min(1.5, Math.max(0.7, Math.exp(WORK_SIGMA * gauss(r))));
     const ground = triangular(r, TERRAIN) / PLANNED_TERRAIN;
     let speed = triangular(r, SPEED);
-    let leak = uniform(r, [0, LEAK_MAX_L_PER_MIN]) / 60; // litres per second
+    let leak = (uniform(r, [0, LEAK_MAX_L_PER_MIN]) / 60) * LEAK_L_TO_UNIT; // O2 per second
     const failAt = r() < LEAK_FAIL_P ? r() * steps.length : Infinity; // step where a big leak starts
-    const failLeak = uniform(r, LEAK_FAIL_L_PER_MIN) / 60;
+    const failLeak = (uniform(r, LEAK_FAIL_L_PER_MIN) / 60) * LEAK_L_TO_UNIT;
     let used = 0, t = 0, abort: string | null = null;
-    const spend = (litres: number, seconds: number) => { used += litres + leak * seconds; t += seconds; };
+    const spend = (o2: number, seconds: number) => { used += o2 + leak * seconds; t += seconds; };
 
     // 2. Walk the plan.
     for (let i = 0; i < steps.length && !abort; i++) {
@@ -125,12 +128,12 @@ export function simulate(steps: Step[], suit: Suit, homeO2: (p: XZ) => number, r
       if (i >= failAt) { leak += failLeak; abort = 'suit leak'; } // the loop stops after this step
       // 3. Abort: straight home from here.
       if (abort) {
-        const litres = home(i) * work * ground;
-        spend(litres, (litres * secondsPerLitre) / speed);
+        const o2 = home(i) * work * ground;
+        spend(o2, (o2 * secondsPerO2) / speed);
       }
     }
 
-    const o2Left = suit.tankL - used, isHome = o2Left >= suit.reserveL, isOnTime = t / 60 <= suit.limitMin;
+    const o2Left = suit.tank - used, isHome = o2Left >= suit.reserve, isOnTime = t / 60 <= suit.limitMin;
     left.push(o2Left);
     homeOk += +isHome;
     onTime += +isOnTime;

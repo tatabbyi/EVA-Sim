@@ -2,7 +2,8 @@
 // EVA path planner: cheapest walk in O2 from any point to a goal, and the best order to visit objectives.
 // Classical Dijkstra (research/07 Option A) with the research/02 walking cost. Pure, worker-safe.
 //  - Lattice on the height grid, 16 neighbours (8 + knight moves → 22.5° headings). A step costs the O2 for its own
-//    grade in the walking direction (uphill ≠ downhill); steeper than MAX_GRADE anywhere along it = not allowed.
+//    grade in the walking direction (uphill ≠ downhill); steeper than the model's max grade anywhere = not allowed.
+//    The cost model is a parameter (CostModel): the game plans with the engine's physics, in grams.
 //  - One Dijkstra per goal on the reversed graph gives a field (O2 to the goal + next node) for EVERY node, so a path
 //    from wherever the astronaut stands is a lookup.
 //  - Lattice paths are string-pulled into straight lines where that stays legal and costs ≤ SMOOTH_SLACK more.
@@ -10,12 +11,15 @@
 import { MAX_GRADE, TERRAIN_FACTOR, o2LitresPerMetre } from './cost.ts';
 
 export type XZ = { x: number; z: number };
-/** Nodes `cell` m apart from (minX, minZ); x east, z south. blocked = no data, outside the play area or a structure. */
-export interface Lattice { cols: number; rows: number; cell: number; minX: number; minZ: number; height: Float32Array; blocked: Uint8Array }
-/** cost: O2 litres from each node to the goal (Infinity = unreachable); next: node towards it. goalNode -1 = no ground. */
+/**
+ * Nodes `cell` m apart from (minX, minZ); x east, z south. blocked = no data, outside the play area or a structure.
+ * costPerM: the cost model as a table by grade (so it travels to the worker); maxGrade: the steepest allowed.
+ */
+export interface Lattice { cols: number; rows: number; cell: number; minX: number; minZ: number; height: Float32Array; blocked: Uint8Array; costPerM: Float64Array; maxGrade: number }
+/** cost: oxygen (the model's unit) from each node to the goal (Infinity = unreachable); next: node towards it. goalNode -1 = no ground. */
 export interface CostField { goal: XZ; goalNode: number; cost: Float32Array; next: Int32Array }
-/** legs[k]: walk to objective order[k]; points: all legs joined; back: last objective → home; litres: planned O2 for all. */
-export interface TourPlan { order: number[]; legs: XZ[][]; points: XZ[]; back: XZ[]; litres: number }
+/** legs[k]: walk to objective order[k]; points: all legs joined; back: last objective → home; cost: planned oxygen for all. */
+export interface TourPlan { order: number[]; legs: XZ[][]; points: XZ[]; back: XZ[]; cost: number }
 
 export const DENSIFY_M = 4; // max spacing of output points (keeps the Catmull-Rom arrows on the line)
 export const SMOOTH_SLACK = 0.02;
@@ -25,19 +29,24 @@ const DC = [-1, 0, 1, -1, 1, -1, 0, 1, -1, 1, -2, 2, -2, 2, -1, 1];
 const DL = DR.map((r, k) => Math.hypot(r, DC[k]));
 const dist = (a: XZ, b: XZ) => Math.hypot(b.x - a.x, b.z - a.z);
 
-// O2 per metre (terrain factor in) as a 0.0005-grade lookup table; Infinity beyond MAX_GRADE.
-const LUT = Array.from({ length: Math.round(MAX_GRADE / 0.00025) + 1 }, (_, i) => o2LitresPerMetre(-MAX_GRADE + i * 0.0005) * TERRAIN_FACTOR);
-function litresPerM(g: number): number {
-  if (!(Math.abs(g) <= MAX_GRADE)) return Infinity;
-  const f = (g + MAX_GRADE) / 0.0005, i = Math.min(LUT.length - 2, Math.floor(f));
-  return LUT[i] + (LUT[i + 1] - LUT[i]) * (f - i);
+/** A walking-cost model: oxygen per horizontal metre at a grade (rise/run, walking direction; any unit), and the steepest grade allowed. */
+export interface CostModel { perMetre(grade: number): number; maxGrade: number }
+/** research/02 (Minetti slope curve, litres, terrain factor 1.15). The default; the game passes the physics model. */
+export const RESEARCH02_COST: CostModel = { perMetre: (g) => o2LitresPerMetre(g) * TERRAIN_FACTOR, maxGrade: MAX_GRADE };
+const STEP = 0.0005; // grade step of the cost table
+
+/** Cost per metre at grade g from the lattice's table (linear in between); Infinity beyond its max grade. */
+function perM(L: Lattice, g: number): number {
+  if (!(Math.abs(g) <= L.maxGrade)) return Infinity;
+  const t = L.costPerM, f = (g + L.maxGrade) / STEP, i = Math.min(t.length - 2, Math.floor(f));
+  return t[i] + (t[i + 1] - t[i]) * (f - i);
 }
 
 export function buildLattice(
   heightAt: (x: number, z: number) => number,
   b: { minX: number; maxX: number; minZ: number; maxZ: number },
   cell: number,
-  { alignX = 0, alignZ = 0, margin = 2, isBlocked }: { alignX?: number; alignZ?: number; margin?: number; isBlocked?: (x: number, z: number) => boolean } = {},
+  { alignX = 0, alignZ = 0, margin = 2, isBlocked, model = RESEARCH02_COST }: { alignX?: number; alignZ?: number; margin?: number; isBlocked?: (x: number, z: number) => boolean; model?: CostModel } = {},
 ): Lattice {
   const minX = alignX + Math.ceil((b.minX + margin - alignX) / cell - 1e-9) * cell, minZ = alignZ + Math.ceil((b.minZ + margin - alignZ) / cell - 1e-9) * cell;
   const cols = Math.floor((b.maxX - margin - minX) / cell + 1e-9) + 1, rows = Math.floor((b.maxZ - margin - minZ) / cell + 1e-9) + 1;
@@ -48,7 +57,8 @@ export function buildLattice(
     height[i] = Number.isFinite(h) ? h : NaN;
     blocked[i] = !Number.isFinite(h) || isBlocked?.(x, z) ? 1 : 0;
   }
-  return { cols, rows, cell, minX, minZ, height, blocked };
+  const costPerM = Float64Array.from({ length: Math.ceil((2 * model.maxGrade) / STEP) + 2 }, (_, i) => model.perMetre(-model.maxGrade + i * STEP));
+  return { cols, rows, cell, minX, minZ, height, blocked, costPerM, maxGrade: model.maxGrade };
 }
 
 const nodeXZ = (L: Lattice, i: number): XZ => ({ x: L.minX + (i % L.cols) * L.cell, z: L.minZ + Math.floor(i / L.cols) * L.cell });
@@ -63,14 +73,14 @@ function near(L: Lattice, p: XZ, radius: number, fn: (i: number) => void) {
 /**
  * Walks the straight line a→b (lattice coords) cell by cell. Heights are bilinear between nodes, so along a line
  * inside one cell the slope changes linearly and peaks at a cell boundary: checking each piece's ends is exact.
- * Returns O2 litres (quarter-cell samples), or Infinity if any part is steeper than MAX_GRADE, off the lattice,
+ * Returns the oxygen cost (quarter-cell samples), or Infinity if any part is steeper than the max grade, off the lattice,
  * on no-data, or (strict) in a cell with a blocked corner.
  */
-function walkLine(L: Lattice, c0: number, r0: number, c1: number, r1: number, strict: boolean, cost = true): number {
+function walkLine(L: Lattice, c0: number, r0: number, c1: number, r1: number, strict: boolean, withCost = true): number {
   const dc = c1 - c0, dr = r1 - r0, len = Math.hypot(dc, dr), n = L.cols, h = L.height;
   if (len < 1e-12) return 0;
   // Step from cell boundary to cell boundary (next column / row line the segment crosses).
-  let litres = 0, nc = dc > 0 ? Math.floor(c0) + 1 : Math.ceil(c0) - 1, nr = dr > 0 ? Math.floor(r0) + 1 : Math.ceil(r0) - 1;
+  let cost = 0, nc = dc > 0 ? Math.floor(c0) + 1 : Math.ceil(c0) - 1, nr = dr > 0 ? Math.floor(r0) + 1 : Math.ceil(r0) - 1;
   for (let t0 = 0; t0 < 1 - 1e-12;) {
     const tc = dc ? (nc - c0) / dc : Infinity, tr = dr ? (nr - r0) / dr : Infinity, t1 = Math.min(1, tc, tr);
     if (t1 === tc) nc += Math.sign(dc);
@@ -84,22 +94,22 @@ function walkLine(L: Lattice, c0: number, r0: number, c1: number, r1: number, st
     const a = h[j], ex = h[j + 1] - a, ez = h[j + n] - a, q = a - h[j + 1] - h[j + n] + h[j + n + 1];
     const u0 = c0 + dc * t0 - c, v0 = r0 + dr * t0 - r, u1 = c0 + dc * t1 - c, v1 = r0 + dr * t1 - r, k = len * L.cell;
     const g = Math.max(Math.abs((ex + q * v0) * dc + (ez + q * u0) * dr), Math.abs((ex + q * v1) * dc + (ez + q * u1) * dr)) / k;
-    if (!(g <= MAX_GRADE)) return Infinity; // NaN (no data) fails too
-    if (cost) {
+    if (!(g <= L.maxGrade)) return Infinity; // NaN (no data) fails too
+    if (withCost) {
       const m = Math.max(1, Math.ceil(((t1 - t0) * len) / 0.25)), ds = ((t1 - t0) * k) / m;
       for (let s = 0, hp = a + ex * u0 + ez * v0 + q * u0 * v0; s < m; s++) {
         const u = u0 + ((u1 - u0) * (s + 1)) / m, v = v0 + ((v1 - v0) * (s + 1)) / m, hn = a + ex * u + ez * v + q * u * v;
-        litres += ds * litresPerM((hn - hp) / ds);
+        cost += ds * perM(L, (hn - hp) / ds);
         hp = hn;
       }
     }
     t0 = t1;
   }
-  return litres;
+  return cost;
 }
 
-/** O2 litres for the straight line a→b in metres (Infinity if not walkable; see walkLine). */
-export function lineLitres(L: Lattice, a: XZ, b: XZ, strict = true): number {
+/** Oxygen cost of the straight line a→b in metres (Infinity if not walkable; see walkLine). */
+export function lineCost(L: Lattice, a: XZ, b: XZ, strict = true): number {
   const c = (x: number) => (x - L.minX) / L.cell, r = (z: number) => (z - L.minZ) / L.cell;
   return walkLine(L, c(a.x), r(a.z), c(b.x), r(b.z), strict);
 }
@@ -156,7 +166,7 @@ export function computeField(L: Lattice, goal: XZ): CostField {
     for (let k = 0; k < 16; k++) {
       const ur = vr - DR[k], uc = vc - DC[k], u = ur * n + uc; // u steps onto v along k
       if (ur < 0 || uc < 0 || ur >= L.rows || uc >= n || done[u] || L.blocked[u] || (mask[u] >> k) & 1) continue;
-      const d = DL[k] * L.cell, w = best[v] + d * litresPerM((h[v] - h[u]) / d);
+      const d = DL[k] * L.cell, w = best[v] + d * perM(L, (h[v] - h[u]) / d);
       if (w < best[u]) { best[u] = w; next[u] = v; push(w, u); }
     }
   }
@@ -165,21 +175,21 @@ export function computeField(L: Lattice, goal: XZ): CostField {
 
 /** Where a walk from p joins the field: the nearby node with the cheapest hop + rest of the way. */
 function entry(L: Lattice, F: CostField, p: XZ) {
-  let node = -1, litres = Infinity;
+  let node = -1, cost = Infinity;
   near(L, p, 3, (i) => {
     // The hop only has to respect the grade limit: you may be standing beside the base or at the airlock.
-    const w = F.cost[i] < Infinity ? lineLitres(L, p, nodeXZ(L, i), false) + F.cost[i] : Infinity;
-    if (w < litres - 1e-9) { litres = w; node = i; }
+    const w = F.cost[i] < Infinity ? lineCost(L, p, nodeXZ(L, i), false) + F.cost[i] : Infinity;
+    if (w < cost - 1e-9) { cost = w; node = i; }
   });
-  return node < 0 ? null : { node, litres };
+  return node < 0 ? null : { node, cost };
 }
 
-/** O2 litres from p to the goal on the cheapest route; Infinity if there is none. */
+/** Oxygen cost from p to the goal on the cheapest route; Infinity if there is none. */
 export function costFrom(L: Lattice, F: CostField, p: XZ): number {
   if (F.goalNode < 0) return Infinity;
   if (dist(p, F.goal) < 1e-6) return 0;
   const e = entry(L, F, p);
-  return e ? e.litres + lineLitres(L, nodeXZ(L, F.goalNode), F.goal, false) : Infinity;
+  return e ? e.cost + lineCost(L, nodeXZ(L, F.goalNode), F.goal, false) : Infinity;
 }
 
 const dedupe = (pts: XZ[]) => pts.filter((p, i) => i === 0 || dist(pts[i - 1], p) >= 0.01);
@@ -195,13 +205,13 @@ export function pathFrom(L: Lattice, F: CostField, p: XZ): XZ[] | null {
   if (nodes[nodes.length - 1] !== F.goalNode) return null;
   const pts = [{ ...p }, ...nodes.map((v) => nodeXZ(L, v)), { ...F.goal }];
   // O2 to reach each point; the lattice part comes straight from the field.
-  const cum = [0, lineLitres(L, p, pts[1], false)];
+  const cum = [0, lineCost(L, p, pts[1], false)];
   for (let i = 1; i < nodes.length; i++) cum.push(cum[i] + F.cost[nodes[i - 1]] - F.cost[nodes[i]]);
-  cum.push(cum[cum.length - 1] + lineLitres(L, pts[pts.length - 2], F.goal, false));
+  cum.push(cum[cum.length - 1] + lineCost(L, pts[pts.length - 2], F.goal, false));
   // String-pulling: from each kept point jump to the farthest point a straight line reaches cheaply enough.
   const out = [pts[0]];
   for (let i = 0, j = 0; i < pts.length - 1; i = j) {
-    for (j = Math.min(pts.length - 1, i + 64); j > i + 1; j--) if (lineLitres(L, pts[i], pts[j]) <= (cum[j] - cum[i]) * (1 + SMOOTH_SLACK) + 1e-6) break;
+    for (j = Math.min(pts.length - 1, i + 64); j > i + 1; j--) if (lineCost(L, pts[i], pts[j]) <= (cum[j] - cum[i]) * (1 + SMOOTH_SLACK) + 1e-6) break;
     const a = pts[i], b = pts[j], k = Math.ceil(dist(a, b) / DENSIFY_M);
     for (let s = 1; s <= k; s++) out.push(s === k ? b : { x: a.x + ((b.x - a.x) * s) / k, z: a.z + ((b.z - a.z) * s) / k });
   }
@@ -222,18 +232,18 @@ export function rankTours(L: Lattice, objectives: CostField[], home: CostField |
   const cost = (F: CostField, p: XZ, key: string) => memo.get(key) ?? memo.set(key, costFrom(L, F, p)).get(key)!;
   const goal = (i: number) => objectives[i].goal;
   const scored = (todo.length ? permutations([...todo].sort((a, b) => a - b)) : home ? [[]] : []).map((order) => {
-    let litres = order.length ? cost(objectives[order[0]], from, `s${order[0]}`) : 0;
-    for (let k = 1; k < order.length; k++) litres += cost(objectives[order[k]], goal(order[k - 1]), `${order[k - 1]}>${order[k]}`);
-    if (home) litres += cost(home, order.length ? goal(order[order.length - 1]) : from, `h${order[order.length - 1] ?? ''}`);
-    return { order, litres };
+    let total = order.length ? cost(objectives[order[0]], from, `s${order[0]}`) : 0;
+    for (let k = 1; k < order.length; k++) total += cost(objectives[order[k]], goal(order[k - 1]), `${order[k - 1]}>${order[k]}`);
+    if (home) total += cost(home, order.length ? goal(order[order.length - 1]) : from, `h${order[order.length - 1] ?? ''}`);
+    return { order, total };
   });
   const tours: TourPlan[] = [];
-  for (const { order, litres } of scored.filter((t) => t.litres < Infinity).sort((a, b) => a.litres - b.litres)) {
+  for (const { order, total } of scored.filter((t) => t.total < Infinity).sort((a, b) => a.total - b.total)) {
     if (tours.length >= count) break;
     const legs = order.map((i, k) => pathFrom(L, objectives[i], k ? goal(order[k - 1]) : from));
     const back = home ? pathFrom(L, home, order.length ? goal(order[order.length - 1]) : from) : [];
     if (!back || legs.some((leg) => !leg)) continue;
-    tours.push(order.length ? { order, legs: legs as XZ[][], points: dedupe(legs.flat() as XZ[]), back, litres } : { order, legs: [], points: back, back: [], litres });
+    tours.push(order.length ? { order, legs: legs as XZ[][], points: dedupe(legs.flat() as XZ[]), back, cost: total } : { order, legs: [], points: back, back: [], cost: total });
   }
   return tours;
 }
