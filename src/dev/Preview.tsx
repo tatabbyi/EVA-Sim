@@ -61,7 +61,9 @@ import { physicsWalk, walkPiece } from '../sim/physicsWalk';
 import { buildSteps, safestTour, simulate, type Odds } from '../sim/survival';
 import { createPathPlanner, type PathPlanner } from '../sim/planner';
 import { setCostTerrain, setHomeCost } from '../sim/cost';
+import { createTouchControls, type TouchControls } from './touchControls';
 import './Preview.css';
+import './touchControls.css';
 
 const EYE = 1.7;
 const MAX_SIDE = 1025;
@@ -186,6 +188,7 @@ export function Preview() {
   const rootRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const startSampleRef = useRef<() => void>(() => {});
+  const touchInteractRef = useRef<() => void>(() => {});
   const goHomeRef = useRef<() => void>(() => {});
   const swayRef = useRef<HTMLDivElement | null>(null);
   const fpsRef = useRef<HTMLSpanElement>(null);
@@ -381,8 +384,9 @@ export function Preview() {
       if (disposed) b?.remove();
       else vrButton = b;
     });
-    const looking = () => controls.isLocked || xr.presenting; // mouse captured, or in the headset
+    const looking = () => controls.isLocked || xr.presenting || !!touchControls; // mouse captured, in the headset, or a phone
     const sway = createHeadSway(swayRef.current ?? root);
+    let touchControls: TouchControls | null = null;
     // Sit down at the console (the view eases into the seat, then the Setup screen comes up) and stand up again.
     const sitAtConsole = () => {
       seatFrom.position.copy(camera.position);
@@ -405,6 +409,7 @@ export function Preview() {
     leaveConsoleRef.current = leaveConsole;
     if (DEMO === 'console') sitAtConsole();
     const onClick = () => {
+      if (touchControls) return; // Mobile uses drag-to-look and explicit action buttons, never pointer lock.
       const m = modeRef.current;
       if (m === 'console') return;
       if (!controls.isLocked) {
@@ -420,6 +425,7 @@ export function Preview() {
     };
     // While an objective holds your view on its target you can still turn your head around it, within a cone.
     let headYaw = 0, headPitch = 0;
+    const touchEuler = new THREE.Euler(0, 0, 0, 'YXZ');
     const onMouse = (e: MouseEvent) => {
       if (!controls.isLocked) return;
       sway.look(e.movementX, e.movementY);
@@ -429,8 +435,51 @@ export function Preview() {
         headPitch = Math.max(-0.55, Math.min(0.55, headPitch - e.movementY * k));
       }
     };
+    // Touch look is independent of PointerLockControls (unavailable on many phone browsers).
+    const lookByTouch = (dx: number, dy: number) => {
+      if (modeRef.current === 'console') return;
+      sway.look(dx, dy);
+      const k = 0.002 * controls.pointerSpeed;
+      if (!controls.enabled) { // An objective holds body facing; touch still turns the head in its allowed cone.
+        headYaw = THREE.MathUtils.clamp(headYaw - dx * k, -0.75, 0.75);
+        headPitch = THREE.MathUtils.clamp(headPitch - dy * k, -0.55, 0.55);
+        return;
+      }
+      touchEuler.setFromQuaternion(camera.quaternion, 'YXZ');
+      touchEuler.y -= dx * k;
+      touchEuler.x = THREE.MathUtils.clamp(touchEuler.x - dy * k, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
+      touchEuler.z = 0;
+      camera.quaternion.setFromEuler(touchEuler);
+    };
+    let lookPointer: number | null = null, lastLookX = 0, lastLookY = 0;
+    const touchLookStart = (event: PointerEvent) => {
+      if (!touchControls || lookPointer !== null || modeRef.current === 'console') return;
+      lookPointer = event.pointerId;
+      lastLookX = event.clientX;
+      lastLookY = event.clientY;
+      renderer.domElement.setPointerCapture(event.pointerId);
+      audio.start(); // A real touch gesture unlocks mobile audio; no synthetic clicks.
+      event.preventDefault();
+    };
+    const touchLookMove = (event: PointerEvent) => {
+      if (!touchControls || event.pointerId !== lookPointer) return;
+      const dx = THREE.MathUtils.clamp(event.clientX - lastLookX, -60, 60);
+      const dy = THREE.MathUtils.clamp(event.clientY - lastLookY, -60, 60);
+      lastLookX = event.clientX;
+      lastLookY = event.clientY;
+      lookByTouch(dx, dy);
+      event.preventDefault();
+    };
+    const touchLookEnd = (event: PointerEvent) => {
+      if (event.pointerId === lookPointer) lookPointer = null;
+    };
     renderer.domElement.addEventListener('click', onClick);
     document.addEventListener('mousemove', onMouse);
+    renderer.domElement.addEventListener('pointerdown', touchLookStart);
+    renderer.domElement.addEventListener('pointermove', touchLookMove);
+    renderer.domElement.addEventListener('pointerup', touchLookEnd);
+    renderer.domElement.addEventListener('pointercancel', touchLookEnd);
+    renderer.domElement.addEventListener('lostpointercapture', touchLookEnd);
 
     // WASD, Shift to run
     const keys = new Set<string>();
@@ -484,6 +533,30 @@ export function Preview() {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
+    touchControls = createTouchControls(root, {
+      onInteract: () => {
+        if (modeRef.current === 'base') {
+          const aimed = room.aim(camera);
+          if (aimed === 'console') sitAtConsole();
+          else if (aimed === 'hatch') {
+            const why = launchRef.current();
+            if (why) {
+              lastPrompt = why;
+              promptHoldUntil = performance.now() / 1000 + 2.5;
+              setBasePrompt(why);
+            }
+          }
+        } else if (modeRef.current === 'eva') touchInteractRef.current();
+      },
+      onJump: () => jump(),
+      onPause: () => {
+        if (!runtimeEngine || modeRef.current !== 'eva') return;
+        if (runtimeEngine.getSnapshot().paused) runtimeEngine.resume();
+        else runtimeEngine.pause();
+        runtimePausedRef.current = runtimeEngine.getSnapshot().paused;
+        setRuntimeSnapshot(runtimeEngine.getSnapshot());
+      },
+    });
 
     const sky = createStarrySky(); // night sky, switchable in the Look panel
     sky.setPixelRatio(pr);
@@ -648,13 +721,14 @@ export function Preview() {
           if (!runtimeEngine || !runtimeClock || modeRef.current !== 'eva') return;
           camera.getWorldDirection(intent);
           const length = Math.hypot(intent.x, intent.z) || 1;
-          const fwd = Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + xr.input.forward; // keyboard, or the left stick
-          const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + xr.input.side;
+          // Keyboard, the headset's left stick, or the phone's joystick.
+          const fwd = Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + xr.input.forward + (touchControls?.forward ?? 0);
+          const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + xr.input.side + (touchControls?.right ?? 0);
           const enabled = looking() && !runtimeEngine.getSnapshot().paused && active < 0;
           runtimeEngine.dispatch({
             type: 'input',
             direction: enabled ? { x: (fwd * intent.x - side * intent.z) / length, z: (fwd * intent.z + side * intent.x) / length } : { x: 0, z: 0 },
-            run: keys.has('ShiftLeft') || keys.has('ShiftRight') || xr.input.run,
+            run: keys.has('ShiftLeft') || keys.has('ShiftRight') || xr.input.run || !!touchControls?.running,
           });
           // Fed in steps of at most 0.1 s: the fixed clock treats a bigger jump as a pause and skips it, which would
           // make fast-forward stall on a slow tick.
@@ -772,11 +846,13 @@ export function Preview() {
       modeRef.current = 'eva';
       evaStartRef.current = performance.now();
       audio.start();
-      // Lock the mouse for looking around (ignored where the browser refuses, e.g. without a focused window).
-      try {
-        void Promise.resolve(renderer.domElement.requestPointerLock()).catch(() => {});
-      } catch {
-        /* not available */
+      // Pointer lock is desktop-only. Touch keeps full camera control without it.
+      if (!touchControls) {
+        try {
+          void Promise.resolve(renderer.domElement.requestPointerLock()).catch(() => {});
+        } catch {
+          /* not available */
+        }
       }
     };
     // Back inside: the mission results stay; base oxygen storage is not simulated.
@@ -1042,7 +1118,7 @@ export function Preview() {
     let vrCompass: VRHudModel['compass'] = null;
     const vrHud = (): VRHudModel => {
       const outdoors = modeRef.current === 'eva', web = vrRef.current;
-      const prompt = outdoors ? null : vrConsole.open ? 'Point at the screen · A or trigger to click' : lastPrompt.replace(/^(E|Click) ·/, 'A ·') || null;
+      const prompt = outdoors ? null : vrConsole.open ? 'Point at the screen · A or trigger to click' : lastPrompt.replace(/^(E|Click|USE) ·/, 'A ·') || null;
       const empty = { label: '', value: '', fraction: 0 };
       return { objectives: { done: 0, total: 0 }, alert: null, o2: empty, temperature: empty, ...web, outdoors, compass: outdoors ? vrCompass : null, prompt };
     };
@@ -1059,6 +1135,8 @@ export function Preview() {
       const rawDt = (ms - last) / 1000;
       const realDt = Math.min(rawDt, 0.1);
       xr.update(realDt);
+      touchControls?.setMode(modeRef.current);
+      touchControls?.setPaused(runtimePausedRef.current);
       const speed = modeRef.current === 'eva' && (keys.has('KeyF') || xr.input.fast) ? FAST_FORWARD : 1;
       if (speed !== speedRef.current) {
         speedRef.current = speed;
@@ -1081,8 +1159,8 @@ export function Preview() {
       if (modeRef.current !== 'eva') {
         const w = host.clientWidth, h = host.clientHeight;
         if (modeRef.current === 'base') {
-          const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + xr.input.forward;
-          const side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + xr.input.side;
+          const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + xr.input.forward + (touchControls?.forward ?? 0);
+          const side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + xr.input.side + (touchControls?.right ?? 0);
           if (looking() && (fwd || side)) {
             const step = (1.5 * dt) / Math.hypot(fwd, side); // an indoor walk
             controls.moveForward(fwd * step);
@@ -1091,9 +1169,11 @@ export function Preview() {
           room.collide(camera.position);
           camera.position.y = ROOM_EYE;
           const aimed = looking() ? room.aim(camera) : null;
-          const prompt = !looking()
-            ? 'Click to look around · WASD to walk'
-            : aimed === 'console' ? 'Click · use the console' : aimed === 'hatch' ? 'E · suit up and go out' : '';
+          const prompt = touchControls
+            ? aimed === 'console' ? 'USE · open mission plan' : aimed === 'hatch' ? 'USE · suit up and go out' : 'Drag to look · move with joystick'
+            : !looking()
+              ? 'Click to look around · WASD to walk'
+              : aimed === 'console' ? 'Click · use the console' : aimed === 'hatch' ? 'E · suit up and go out' : '';
           if (prompt !== lastPrompt && time > promptHoldUntil) {
             lastPrompt = prompt;
             setBasePrompt(prompt);
@@ -1422,6 +1502,12 @@ export function Preview() {
       renderer.setAnimationLoop(null);
       renderer.domElement.removeEventListener('click', onClick);
       document.removeEventListener('mousemove', onMouse);
+      renderer.domElement.removeEventListener('pointerdown', touchLookStart);
+      renderer.domElement.removeEventListener('pointermove', touchLookMove);
+      renderer.domElement.removeEventListener('pointerup', touchLookEnd);
+      renderer.domElement.removeEventListener('pointercancel', touchLookEnd);
+      renderer.domElement.removeEventListener('lostpointercapture', touchLookEnd);
+      touchControls?.dispose();
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
@@ -1478,6 +1564,11 @@ export function Preview() {
         : interaction.kind === 'stored'
           ? { level: 'info', title: interaction.title, message: interaction.text }
           : notice; // (visor fogging has its own line under the bars: HelmetHud status)
+  touchInteractRef.current = () => {
+    if (modeRef.current !== 'eva') return;
+    if (alert?.onAccept) alert.onAccept();
+    else startSampleRef.current();
+  };
 
   // Objective lines: done ones show the time taken, the current one counts down (red once over), the rest show
   // their budget. RETURN is the total time left to get back to base.
