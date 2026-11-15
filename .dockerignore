@@ -1,0 +1,14 @@
+# Only what the web build needs goes into the Docker build.
+node_modules
+dist
+release
+.git
+.github
+.idea
+.vscode
+pipeline
+research
+docs
+tests
+electron
+*.tif
