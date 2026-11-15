@@ -495,7 +495,6 @@ export function Preview() {
           }
         } else if (modeRef.current === 'eva') touchInteractRef.current();
       },
-      onJump: startJump,
       onPause: () => {
         if (!runtimeEngine || modeRef.current !== 'eva') return;
         if (runtimeEngine.getSnapshot().paused) runtimeEngine.resume();

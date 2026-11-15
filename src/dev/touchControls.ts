@@ -10,7 +10,6 @@ export interface TouchControls {
 
 interface TouchActions {
   onInteract(): void;
-  onJump(): void;
   onPause(): void;
 }
 
@@ -27,7 +26,6 @@ export function createTouchControls(root: HTMLElement, actions: TouchActions): T
     '<div class="touch-look-hint">SWIPE TO LOOK</div>',
     '<div class="touch-actions">',
     '  <button type="button" class="touch-button touch-run" aria-pressed="false">RUN</button>',
-    '  <button type="button" class="touch-button touch-jump">JUMP</button>',
     '  <button type="button" class="touch-button touch-pause">PAUSE</button>',
     '  <button type="button" class="touch-button touch-interact">USE / E</button>',
     '</div>',
@@ -39,7 +37,6 @@ export function createTouchControls(root: HTMLElement, actions: TouchActions): T
   const knob = overlay.querySelector<HTMLElement>('.touch-stick-knob')!;
   const runButton = overlay.querySelector<HTMLButtonElement>('.touch-run')!;
   const pauseButton = overlay.querySelector<HTMLButtonElement>('.touch-pause')!;
-  const jumpButton = overlay.querySelector<HTMLButtonElement>('.touch-jump')!;
   const interactButton = overlay.querySelector<HTMLButtonElement>('.touch-interact')!;
   let activePointer: number | null = null;
   let forward = 0;
@@ -85,7 +82,6 @@ export function createTouchControls(root: HTMLElement, actions: TouchActions): T
     runButton.setAttribute('aria-pressed', String(running));
     runButton.classList.toggle('is-active', running);
   };
-  const onJump = () => actions.onJump();
   const onInteract = () => actions.onInteract();
   const onPause = () => actions.onPause();
   const onBlur = () => { activePointer = null; resetStick(); };
@@ -97,7 +93,6 @@ export function createTouchControls(root: HTMLElement, actions: TouchActions): T
   stick.addEventListener('pointercancel', onStickUp);
   stick.addEventListener('lostpointercapture', onStickUp);
   runButton.addEventListener('click', onRun);
-  jumpButton.addEventListener('click', onJump);
   interactButton.addEventListener('click', onInteract);
   pauseButton.addEventListener('click', onPause);
   window.addEventListener('blur', onBlur);
@@ -129,7 +124,6 @@ export function createTouchControls(root: HTMLElement, actions: TouchActions): T
       stick.removeEventListener('pointercancel', onStickUp);
       stick.removeEventListener('lostpointercapture', onStickUp);
       runButton.removeEventListener('click', onRun);
-      jumpButton.removeEventListener('click', onJump);
       interactButton.removeEventListener('click', onInteract);
       pauseButton.removeEventListener('click', onPause);
       window.removeEventListener('blur', onBlur);

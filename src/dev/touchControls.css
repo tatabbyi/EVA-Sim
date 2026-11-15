@@ -76,7 +76,6 @@
 .touch-button.is-active { background: #307783eb; border-color: #eeffff; }
 .touch-interact { grid-column: 1 / -1; background: #25617bec; }
 .touch-controls[data-mode="base"] .touch-run,
-.touch-controls[data-mode="base"] .touch-jump,
 .touch-controls[data-mode="base"] .touch-pause { display: none; }
 .touch-controls[data-mode="base"] .touch-interact { grid-column: 1 / -1; }
 @media (pointer: coarse) and (max-width: 900px) {
