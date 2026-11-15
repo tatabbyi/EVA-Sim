@@ -1,0 +1,136 @@
+/* Phone/tablet touch controls. Canvas look uses Pointer Events, not browser pointer lock. */
+.touch-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  font: 700 13px/1 system-ui, sans-serif;
+  color: #e3faff;
+}
+.preview.touch-enabled .preview-canvas canvas { touch-action: none; }
+.touch-controls[data-mode="console"] { display: none; }
+.touch-stick {
+  position: absolute;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  left: max(18px, env(safe-area-inset-left));
+  width: clamp(100px, 22vw, 132px);
+  height: clamp(100px, 22vw, 132px);
+  border: 2px solid #83dbe4b8;
+  border-radius: 50%;
+  background: #0b26357a;
+  box-shadow: 0 0 20px #0007;
+  pointer-events: auto;
+  touch-action: none;
+}
+.touch-stick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 46%;
+  height: 46%;
+  border-radius: 50%;
+  background: #b6eff0b8;
+  border: 2px solid #ebffff;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.touch-look-hint {
+  position: absolute;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+  color: #c5f3f5b7;
+}
+.touch-actions {
+  position: absolute;
+  bottom: max(22px, env(safe-area-inset-bottom));
+  right: max(16px, env(safe-area-inset-right));
+  display: grid;
+  grid-template-columns: repeat(2, minmax(56px, 65px));
+  gap: 10px;
+  align-items: end;
+  pointer-events: none;
+}
+.touch-button {
+  min-width: 56px;
+  min-height: 48px;
+  padding: 9px 8px;
+  border: 1px solid #a4e8f0af;
+  border-radius: 12px;
+  background: #133043cd;
+  box-shadow: 0 3px 12px #0009;
+  color: #eaffff;
+  font: inherit;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.touch-button:active,
+.touch-button.is-active { background: #307783eb; border-color: #eeffff; }
+.touch-interact { grid-column: 1 / -1; background: #25617bec; }
+.touch-controls[data-mode="base"] .touch-run,
+.touch-controls[data-mode="base"] .touch-jump,
+.touch-controls[data-mode="base"] .touch-pause { display: none; }
+.touch-controls[data-mode="base"] .touch-interact { grid-column: 1 / -1; }
+@media (pointer: coarse) and (max-width: 900px) {
+  /* The habitat's 3D monitor is too small to tap on a phone: present its same live plan full-screen. */
+  .preview.touch-enabled .preview-console {
+    position: fixed !important;
+    inset: 0 !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    border-radius: 0 !important;
+    z-index: 30;
+    overflow: auto;
+  }
+  .preview.touch-enabled .preview-console .plan {
+    position: relative;
+    inset: auto;
+    min-height: 100%;
+    height: auto;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    container-type: inline-size;
+  }
+  .preview.touch-enabled .preview-console .plan-side {
+    flex: 0 0 auto;
+    overflow: visible;
+    gap: 10px;
+    padding: 14px;
+  }
+  .preview.touch-enabled .preview-console .plan-card { flex: 0 0 auto; gap: 6px; padding: 12px; border-radius: 8px; }
+  .preview.touch-enabled .preview-console .plan-back { font-size: 26px; padding: 4px 12px; }
+  .preview.touch-enabled .preview-console .plan-mission-name { font-size: 17px; }
+  .preview.touch-enabled .preview-console .plan-h { font-size: 14px; }
+  .preview.touch-enabled .preview-console .plan-task { grid-template-columns: 22px 26px 1fr; column-gap: 9px; padding: 8px; border-radius: 6px; }
+  .preview.touch-enabled .preview-console .plan-task input { width: 18px; height: 18px; }
+  .preview.touch-enabled .preview-console .plan-task-num { width: 24px; height: 24px; font-size: 12px; }
+  .preview.touch-enabled .preview-console .plan-task-name,
+  .preview.touch-enabled .preview-console .plan-task-meta,
+  .preview.touch-enabled .preview-console .plan-needs dd,
+  .preview.touch-enabled .preview-console .plan-save { font-size: 14px; }
+  .preview.touch-enabled .preview-console .plan-sub,
+  .preview.touch-enabled .preview-console .plan-needs dt,
+  .preview.touch-enabled .preview-console .plan-status,
+  .preview.touch-enabled .preview-console .plan-soon { font-size: 12px; }
+  .preview.touch-enabled .preview-console .plan-meter { height: 6px; }
+  .preview.touch-enabled .preview-console .plan-save { padding: 12px 18px; min-height: 44px; }
+  .preview.touch-enabled .preview-console .plan-map { flex: 0 0 auto; height: 32vh; min-height: 200px; }
+  .preview.touch-enabled .preview-console .plan-map-key { font-size: 10px; }
+}
+@media (pointer: coarse) and (max-height: 450px) {
+  .touch-stick { width: 96px; height: 96px; bottom: 10px; }
+  .touch-actions { bottom: 10px; gap: 6px; }
+  .touch-button { min-height: 42px; }
+  .touch-look-hint { display: none; }
+}

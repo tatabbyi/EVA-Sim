@@ -58,6 +58,7 @@ import { physicsWalk, walkPiece } from '../sim/physicsWalk';
 import { buildSteps, safestTour, simulate, type Odds } from '../sim/survival';
 import { createPathPlanner, type PathPlanner } from '../sim/planner';
 import { setCostTerrain, setHomeCost } from '../sim/cost';
+import { createTouchControls, type TouchControls } from './touchControls';
 import './Preview.css';
 
 const EYE = 1.7;
@@ -183,6 +184,7 @@ export function Preview() {
   const rootRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const startSampleRef = useRef<() => void>(() => {});
+  const touchInteractRef = useRef<() => void>(() => {});
   const goHomeRef = useRef<() => void>(() => {});
   const swayRef = useRef<HTMLDivElement | null>(null);
   const fpsRef = useRef<HTMLSpanElement>(null);
@@ -333,6 +335,7 @@ export function Preview() {
     const controls = new PointerLockControls(camera, renderer.domElement);
     controls.pointerSpeed = 1.8; // snappier mouse look
     const sway = createHeadSway(swayRef.current ?? root);
+    let touchControls: TouchControls | null = null;
     // Sit down at the console (the view eases into the seat, then the Setup screen comes up) and stand up again.
     const sitAtConsole = () => {
       seatFrom.position.copy(camera.position);
@@ -355,6 +358,7 @@ export function Preview() {
     leaveConsoleRef.current = leaveConsole;
     if (DEMO === 'console') sitAtConsole();
     const onClick = () => {
+      if (touchControls) return; // Mobile uses drag-to-look and explicit action buttons, never pointer lock.
       const m = modeRef.current;
       if (m === 'console') return;
       if (!controls.isLocked) {
@@ -370,6 +374,7 @@ export function Preview() {
     };
     // While an objective holds your view on its target you can still turn your head around it, within a cone.
     let headYaw = 0, headPitch = 0;
+    const touchEuler = new THREE.Euler(0, 0, 0, 'YXZ');
     const onMouse = (e: MouseEvent) => {
       if (!controls.isLocked) return;
       sway.look(e.movementX, e.movementY);
@@ -379,8 +384,51 @@ export function Preview() {
         headPitch = Math.max(-0.55, Math.min(0.55, headPitch - e.movementY * k));
       }
     };
+    // Touch look is independent of PointerLockControls (unavailable on many phone browsers).
+    const lookByTouch = (dx: number, dy: number) => {
+      if (modeRef.current === 'console') return;
+      sway.look(dx, dy);
+      const k = 0.002 * controls.pointerSpeed;
+      if (!controls.enabled) { // An objective holds body facing; touch still turns the head in its allowed cone.
+        headYaw = THREE.MathUtils.clamp(headYaw - dx * k, -0.75, 0.75);
+        headPitch = THREE.MathUtils.clamp(headPitch - dy * k, -0.55, 0.55);
+        return;
+      }
+      touchEuler.setFromQuaternion(camera.quaternion, 'YXZ');
+      touchEuler.y -= dx * k;
+      touchEuler.x = THREE.MathUtils.clamp(touchEuler.x - dy * k, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
+      touchEuler.z = 0;
+      camera.quaternion.setFromEuler(touchEuler);
+    };
+    let lookPointer: number | null = null, lastLookX = 0, lastLookY = 0;
+    const touchLookStart = (event: PointerEvent) => {
+      if (!touchControls || lookPointer !== null || modeRef.current === 'console') return;
+      lookPointer = event.pointerId;
+      lastLookX = event.clientX;
+      lastLookY = event.clientY;
+      renderer.domElement.setPointerCapture(event.pointerId);
+      audio.start(); // A real touch gesture unlocks mobile audio; no synthetic clicks.
+      event.preventDefault();
+    };
+    const touchLookMove = (event: PointerEvent) => {
+      if (!touchControls || event.pointerId !== lookPointer) return;
+      const dx = THREE.MathUtils.clamp(event.clientX - lastLookX, -60, 60);
+      const dy = THREE.MathUtils.clamp(event.clientY - lastLookY, -60, 60);
+      lastLookX = event.clientX;
+      lastLookY = event.clientY;
+      lookByTouch(dx, dy);
+      event.preventDefault();
+    };
+    const touchLookEnd = (event: PointerEvent) => {
+      if (event.pointerId === lookPointer) lookPointer = null;
+    };
     renderer.domElement.addEventListener('click', onClick);
     document.addEventListener('mousemove', onMouse);
+    renderer.domElement.addEventListener('pointerdown', touchLookStart);
+    renderer.domElement.addEventListener('pointermove', touchLookMove);
+    renderer.domElement.addEventListener('pointerup', touchLookEnd);
+    renderer.domElement.addEventListener('pointercancel', touchLookEnd);
+    renderer.domElement.addEventListener('lostpointercapture', touchLookEnd);
 
     // WASD, Shift to run
     const keys = new Set<string>();
@@ -388,6 +436,12 @@ export function Preview() {
     const JUMP_SPEED = 3.2, MARS_G = 3.71; // about 1.4 m high, 1.7 s in the air
     let vy = 0, airborne = false;
     let devTools = false; // Look panel + test label, hidden unless you press the backtick key
+    const startJump = () => {
+      if (modeRef.current !== 'eva' || airborne || active >= 0) return;
+      vy = JUMP_SPEED;
+      airborne = true;
+      sway.look(0, 22);
+    };
     const onKeyDown = (e: KeyboardEvent) => {
       keys.add(e.code);
       if (e.code === 'Backquote') {
@@ -411,11 +465,7 @@ export function Preview() {
       if (e.code === 'KeyT' && modeRef.current === 'eva') setTopology(!topologyOn);
       if (e.code === 'Space') {
         e.preventDefault(); // don't scroll the page
-        if (modeRef.current === 'eva' && !airborne && active < 0) {
-          vy = JUMP_SPEED;
-          airborne = true;
-          sway.look(0, 22); // the helmet lurches as you push off
-        }
+        startJump();
       }
     };
     const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
@@ -429,6 +479,30 @@ export function Preview() {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
+    touchControls = createTouchControls(root, {
+      onInteract: () => {
+        if (modeRef.current === 'base') {
+          const aimed = room.aim(camera);
+          if (aimed === 'console') sitAtConsole();
+          else if (aimed === 'hatch') {
+            const why = launchRef.current();
+            if (why) {
+              lastPrompt = why;
+              promptHoldUntil = performance.now() / 1000 + 2.5;
+              setBasePrompt(why);
+            }
+          }
+        } else if (modeRef.current === 'eva') touchInteractRef.current();
+      },
+      onJump: startJump,
+      onPause: () => {
+        if (!runtimeEngine || modeRef.current !== 'eva') return;
+        if (runtimeEngine.getSnapshot().paused) runtimeEngine.resume();
+        else runtimeEngine.pause();
+        runtimePausedRef.current = runtimeEngine.getSnapshot().paused;
+        setRuntimeSnapshot(runtimeEngine.getSnapshot());
+      },
+    });
 
     const sky = createStarrySky(); // night sky, switchable in the Look panel
     sky.setPixelRatio(pr);
@@ -592,13 +666,13 @@ export function Preview() {
           if (!runtimeEngine || !runtimeClock || modeRef.current !== 'eva') return;
           camera.getWorldDirection(intent);
           const length = Math.hypot(intent.x, intent.z) || 1;
-          const fwd = Number(keys.has('KeyW')) - Number(keys.has('KeyS'));
-          const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
-          const enabled = controls.isLocked && !runtimeEngine.getSnapshot().paused && active < 0;
+          const fwd = Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + (touchControls?.forward ?? 0);
+          const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + (touchControls?.right ?? 0);
+          const enabled = (controls.isLocked || !!touchControls) && !runtimeEngine.getSnapshot().paused && active < 0;
           runtimeEngine.dispatch({
             type: 'input',
             direction: enabled ? { x: (fwd * intent.x - side * intent.z) / length, z: (fwd * intent.z + side * intent.x) / length } : { x: 0, z: 0 },
-            run: keys.has('ShiftLeft') || keys.has('ShiftRight'),
+            run: keys.has('ShiftLeft') || keys.has('ShiftRight') || !!touchControls?.running,
           });
           // Fed in steps of at most 0.1 s: the fixed clock treats a bigger jump as a pause and skips it, which would
           // make fast-forward stall on a slow tick.
@@ -716,11 +790,13 @@ export function Preview() {
       modeRef.current = 'eva';
       evaStartRef.current = performance.now();
       audio.start();
-      // Lock the mouse for looking around (ignored where the browser refuses, e.g. without a focused window).
-      try {
-        void Promise.resolve(renderer.domElement.requestPointerLock()).catch(() => {});
-      } catch {
-        /* not available */
+      // Pointer lock is desktop-only. Touch keeps full camera control without it.
+      if (!touchControls) {
+        try {
+          void Promise.resolve(renderer.domElement.requestPointerLock()).catch(() => {});
+        } catch {
+          /* not available */
+        }
       }
     };
     // Back inside: the mission results stay; base oxygen storage is not simulated.
@@ -985,6 +1061,8 @@ export function Preview() {
     renderer.setAnimationLoop((ms: number) => {
       const rawDt = (ms - last) / 1000;
       const realDt = Math.min(rawDt, 0.1);
+      touchControls?.setMode(modeRef.current);
+      touchControls?.setPaused(runtimePausedRef.current);
       const speed = modeRef.current === 'eva' && keys.has('KeyF') ? FAST_FORWARD : 1;
       if (speed !== speedRef.current) {
         speedRef.current = speed;
@@ -1007,9 +1085,9 @@ export function Preview() {
       if (modeRef.current !== 'eva') {
         const w = host.clientWidth, h = host.clientHeight;
         if (modeRef.current === 'base') {
-          const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
-          const side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
-          if (controls.isLocked && (fwd || side)) {
+          const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + (touchControls?.forward ?? 0);
+          const side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (touchControls?.right ?? 0);
+          if ((controls.isLocked || !!touchControls) && (fwd || side)) {
             const step = (1.5 * dt) / Math.hypot(fwd, side); // an indoor walk
             controls.moveForward(fwd * step);
             controls.moveRight(side * step);
@@ -1324,6 +1402,12 @@ export function Preview() {
       renderer.setAnimationLoop(null);
       renderer.domElement.removeEventListener('click', onClick);
       document.removeEventListener('mousemove', onMouse);
+      renderer.domElement.removeEventListener('pointerdown', touchLookStart);
+      renderer.domElement.removeEventListener('pointermove', touchLookMove);
+      renderer.domElement.removeEventListener('pointerup', touchLookEnd);
+      renderer.domElement.removeEventListener('pointercancel', touchLookEnd);
+      renderer.domElement.removeEventListener('lostpointercapture', touchLookEnd);
+      touchControls?.dispose();
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
@@ -1376,6 +1460,11 @@ export function Preview() {
         : interaction.kind === 'stored'
           ? { level: 'info', title: interaction.title, message: interaction.text }
           : notice; // (visor fogging has its own line under the bars: HelmetHud status)
+  touchInteractRef.current = () => {
+    if (modeRef.current !== 'eva') return;
+    if (alert?.onAccept) alert.onAccept();
+    else startSampleRef.current();
+  };
 
   // Objective lines: done ones show the time taken, the current one counts down (red once over), the rest show
   // their budget. RETURN is the total time left to get back to base.
