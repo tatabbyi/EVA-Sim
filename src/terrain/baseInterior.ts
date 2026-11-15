@@ -79,7 +79,7 @@ function readoutTexture(title: string, rows: [string, string][], seed: number) {
       ctx.fillText(v, 732, 122 + i * 42);
       ctx.textAlign = 'left';
     });
-    ctx.strokeStyle = '#548278'; // teal trace
+    ctx.strokeStyle = '#0a84ff'; // blue trace, like the main screen
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     for (let x = 0; x <= 696; x += 6) {

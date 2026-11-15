@@ -140,6 +140,17 @@
 .hud-alert--warning .hud-alert-title {
   fill: var(--c-warning) !important;
 }
+/* Suit status under the bars (visor fogging) */
+.hud-on-glass .hud-status-title {
+  fill: var(--c-warning);
+  font-size: 0.85em;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+.hud-on-glass .hud-status-message {
+  font-size: 0.78em;
+  opacity: 0.85;
+}
 .hud-alert-message {
   font-size: 0.95em;
 }

@@ -41,8 +41,9 @@ export function createHelmetInterior(host: HTMLElement, fovDeg = 80): HelmetInte
   const darkRubber = keep(new THREE.MeshStandardMaterial({ color: '#1b1c1f', roughness: 0.85 }));
   const micFoam = keep(new THREE.MeshStandardMaterial({ color: '#141518', roughness: 1, bumpMap: foam, bumpScale: 0.004 }));
   const metal = keep(new THREE.MeshStandardMaterial({ color: '#8f969e', roughness: 0.3, metalness: 0.9 }));
-  const yellowTube = keep(new THREE.MeshPhysicalMaterial({ color: '#e3b22a', roughness: 0.35, clearcoat: 0.5, transmission: 0 }));
-  const greenWire = keep(new THREE.MeshStandardMaterial({ color: '#2e8b4c', roughness: 0.55 }));
+  // Neutral like the rest of the suit hardware: a clear-white drink tube and a dark grey mic lead.
+  const drinkTube = keep(new THREE.MeshPhysicalMaterial({ color: '#dfe2e4', roughness: 0.3, clearcoat: 0.6, transmission: 0 }));
+  const micWire = keep(new THREE.MeshStandardMaterial({ color: '#3a3d42', roughness: 0.55 }));
   const blackWire = keep(new THREE.MeshStandardMaterial({ color: '#111114', roughness: 0.6 }));
   const padFoam = keep(new THREE.MeshStandardMaterial({ color: '#e8dcc4', roughness: 0.95, bumpMap: foam, bumpScale: 0.003 }));
   const collarCloth = keep(createFabricTexture('#e7e0d2', 0.25, 256, 13, 6));
@@ -95,11 +96,11 @@ export function createHelmetInterior(host: HTMLElement, fovDeg = 80): HelmetInte
   add(new THREE.CylinderGeometry(0.006, 0.007, 0.018, 12), darkRubber, 0.006, -0.247, -0.305).rotation.set(0.5, 0, 1.2);
 
   // Cables: green and black, running down to the neck ring.
-  tube([[0.006, -0.25, -0.305], [-0.02, -0.27, -0.29], [-0.06, -0.3, -0.27], [-0.12, -0.34, -0.24], [-0.17, -0.6, -0.1]], 0.0028, greenWire);
+  tube([[0.006, -0.25, -0.305], [-0.02, -0.27, -0.29], [-0.06, -0.3, -0.27], [-0.12, -0.34, -0.24], [-0.17, -0.6, -0.1]], 0.0028, micWire);
   tube([[-0.06, -0.225, -0.3], [-0.04, -0.26, -0.29], [0.0, -0.3, -0.27], [0.05, -0.35, -0.24], [0.09, -0.6, -0.1]], 0.003, blackWire);
 
   // Yellow drink tube looping up from the right, and the foam pad beside it.
-  tube([[0.32, -0.62, -0.1], [0.26, -0.36, -0.22], [0.16, -0.29, -0.29], [0.09, -0.235, -0.31], [0.05, -0.245, -0.315], [0.07, -0.28, -0.3]], 0.0075, yellowTube);
+  tube([[0.32, -0.62, -0.1], [0.26, -0.36, -0.22], [0.16, -0.29, -0.29], [0.09, -0.235, -0.31], [0.05, -0.245, -0.315], [0.07, -0.28, -0.3]], 0.0075, drinkTube);
   const pad = add(new THREE.BoxGeometry(0.06, 0.03, 0.03), padFoam, 0.11, -0.27, -0.32);
   pad.rotation.set(0.4, -0.2, 0.05);
 

@@ -20,6 +20,7 @@ import GUI from 'lil-gui';
 import { createTerrainMaterial, setHeightRange, setTerrainPreset } from '../terrain/material';
 import { createMarsDaySky, createStarrySky } from '../terrain/sky';
 import { createSpaceBase, type SpaceBase } from '../terrain/base';
+import { shapeTerrain, type SiteShaping } from '../terrain/siteShaping';
 import { createRoutePath, type RoutePath } from '../terrain/routePath';
 import { createSampleSite } from '../terrain/sampleSite';
 import { abradeTask, coreTask, createDepotTask, createLaserTask, createMoxieTask, createPanoramaTask, type TaskKind, type TaskSite } from '../terrain/tasks';
@@ -58,20 +59,20 @@ const O2_CAPACITY = 390;
 const WALK = 2.2; // m/s
 const RUN = 4.6;
 
-// The site: a field of low ridges on real Jezero terrain about 2.4 km north-west of Perseverance's landing site,
-// west of the delta front. The ridges are 10 to 20 m tall (32 m of relief in the whole area, no big landform), with
-// gentle valleys between them. Picked by running the path planner itself over the whole map: here the cheapest
-// walk curves round the ends and sides of the ridges instead of climbing them (three of the five legs bend 14 to
-// 23 m off the straight line; the whole tour is about 810 m). On the gentle hills of the open crater floor the
-// planner just walks straight over, because climbing a 10° hill costs less oxygen than walking round it.
-// The base stands on a 2.3° pad, airlock facing south-east straight down the first leg, so you walk straight out.
+// The site: a field of ridges on real Jezero terrain about 2.4 km north-west of Perseverance's landing site, west
+// of the delta front, shaped for the demo (siteShaping.ts, SITE_SHAPING below): its hills drawn twice as close
+// together and made 1.6 times taller, the big landforms flattened, a levelled pad under the base. Ridges about 15
+// to 30 m tall, close together, 39 m of relief in the whole area. The objectives were placed by running the path
+// planner on this ground: every leg curves 10 to 31 m round a ridge instead of climbing it (the whole tour is about
+// 660 m). The airlock faces south, straight down the first leg, so you walk straight out.
 // The line below only PLACES the objectives (route points 1 to 4, in the order the planner visits them).
-// Local metres: x east, z south.
+// Local metres: x east, z south. ?terrain=real shows the true-scale ground instead (the objectives stay put).
 const BASE_AT: XZ = { x: -1760, z: -1580 };
-const BASE_FACING: XZ = { x: Math.SQRT1_2, z: Math.SQRT1_2 }; // the way the airlock faces (unit vector)
+const BASE_FACING: XZ = { x: 0, z: 1 }; // the way the airlock faces (unit vector)
+const SITE_SHAPING: SiteShaping = { centre: BASE_AT, closer: 2, hills: 1.6, landforms: 0.25, padRadius: 26, padBlend: 40 };
 const ROUTE: XZ[] = [
   { x: BASE_AT.x + BASE_FACING.x * 12, z: BASE_AT.z + BASE_FACING.z * 12 }, // just outside the airlock
-  { x: -1628, z: -1490 }, { x: -1796, z: -1448 }, { x: -1838, z: -1504 }, { x: -1796, z: -1728 },
+  { x: -1786, z: -1498 }, { x: -1714, z: -1486 }, { x: -1654, z: -1642 }, { x: -1750, z: -1726 },
 ];
 // Objectives along the path, in order, each a little off the track: rocks to step over to, a boulder to zap from
 // the path, a viewpoint marker on the path itself. Kinds: see src/terrain/tasks.ts.
@@ -116,6 +117,7 @@ const STOPS: XZ[] = TASK_PLAN.map(({ at: k, offset }) => {
 // ?demo=core (or sample), ?demo=laser, ?demo=panorama: start at that objective and begin it (for checks and demo recordings).
 // ?demo=fog: the visor stays fogged (to judge the look). ?demo=console: start seated at the base console.
 // ?demo=suit: start in the base looking at your suit on its stand by the hatch.
+// ?demo=view&x=..&z=..&lx=..&lz=..: stand at (x, z) outside, looking towards (lx, lz) (local metres; to judge the look).
 const PARAMS = new URLSearchParams(window.location.search);
 const DEMO = PARAMS.get('demo');
 // Where the path outline is drawn: 'world' (3D arrows on the ground) or 'glass' (projected onto the visor).
@@ -269,6 +271,7 @@ export function Preview() {
     const camera = new THREE.PerspectiveCamera(80, host.clientWidth / host.clientHeight, 0.05, 8000);
     camera.position.set(ROUTE[0].x, EYE, ROUTE[0].z);
     camera.lookAt(STOPS[0].x, EYE, STOPS[0].z); // face the first stop
+    camera.rotateX(-0.05); // looking 3° down the path (dead level showed a flat patch in the software renderer)
     if (modeRef.current === 'base') {
       // Start standing inside the base, facing the console. A normal field of view in here (no helmet).
       camera.position.copy(room.start.position);
@@ -626,6 +629,7 @@ export function Preview() {
       const first = plannedRoute[Math.min(plannedRoute.length - 1, 3)]; // face along the path
       camera.position.set(base.door.x, groundAt(base.door.x, base.door.z) + EYE, base.door.z);
       camera.lookAt(first.x, groundAt(first.x, first.z) + EYE, first.z);
+      camera.rotateX(-0.05); // 3° down, onto the path
       camera.fov = 80; // helmet on: wide view through the dome
       camera.updateProjectionMatrix();
       o2Now = O2_CAPACITY;
@@ -692,6 +696,8 @@ export function Preview() {
         setTerrainNote('No terrain yet: waiting for public/grids/height_4m.bin (Victor). Sky and HUD only.');
         return;
       }
+      // The demo site's hills, closer and taller (SITE_SHAPING); everything below uses these heights.
+      if (PARAMS.get('terrain') !== 'real') grid = shapeTerrain(grid, SITE_SHAPING);
       if (runtimeRegion) {
         try {
           const revision = `preview-grid-${grid.n}-${grid.cell}m`;
@@ -785,8 +791,10 @@ export function Preview() {
       const clearPath = tour ? [...tour.points, ...tour.back] : [];
       // Loose rocks everywhere except on the planned tour (scenery, not obstacles), at the objectives and in the base.
       const nearRoute = (x: number, z: number, r: number) => clearPath.length > 1 && distanceToPath(clearPath, { x, z }) < 1.1 + r;
+      // ...and none on the levelled pad round the base (it was graded clear; a boulder by the airlock looked like a slab).
+      const onPad = (x: number, z: number, r: number) => Math.hypot(x - BASE_AT.x, z - BASE_AT.z) < SITE_SHAPING.padRadius + r;
       rocks = createRockField(groundAt, (x, z, r) =>
-        nearRoute(x, z, r) || base!.keepClear(x, z, r) || tasks.some((t) => (t.anchor.x - x) ** 2 + (t.anchor.z - z) ** 2 < (2.8 + r) ** 2),
+        nearRoute(x, z, r) || onPad(x, z, r) || base!.keepClear(x, z, r) || tasks.some((t) => (t.anchor.x - x) ** 2 + (t.anchor.z - z) ** 2 < (2.8 + r) ** 2),
       );
       scene.add(rocks.group);
       // Sun shadows on the ground (base, rocks, tools, hands)
@@ -799,6 +807,11 @@ export function Preview() {
         const vx = BASE_AT.x + BASE_FACING.x * 27 + BASE_FACING.z * 16, vz = BASE_AT.z + BASE_FACING.z * 27 - BASE_FACING.x * 16;
         camera.position.set(vx, groundAt(vx, vz) + EYE, vz);
         camera.lookAt(BASE_AT.x, groundAt(BASE_AT.x, BASE_AT.z) + 3, BASE_AT.z);
+      } else if (DEMO === 'view') {
+        const num = (k: string, d: number) => Number(PARAMS.get(k) ?? d);
+        const vx = num('x', BASE_AT.x), vz = num('z', BASE_AT.z + 30), lx = num('lx', BASE_AT.x), lz = num('lz', BASE_AT.z);
+        camera.position.set(vx, groundAt(vx, vz) + EYE, vz);
+        camera.lookAt(lx, groundAt(lx, lz) + EYE * 0.5, lz);
       } else if (DEMO) {
         // ?demo=core | laser | panorama (or sample = core): start right at that objective.
         const kind = DEMO === 'sample' ? 'core' : DEMO;
@@ -1278,9 +1291,7 @@ export function Preview() {
         ? { level: 'info', title: interaction.title, message: `${interaction.phase}… ${interaction.pct}%` }
         : interaction.kind === 'stored'
           ? { level: 'info', title: interaction.title, message: interaction.text }
-          : fogWarn
-            ? { level: 'warning', title: 'VISOR FOGGING', message: 'Slow down to let it clear' }
-            : notice;
+          : notice; // (visor fogging has its own line under the bars: HelmetHud status)
 
   // Objective lines: done ones show the time taken, the current one counts down (red once over), the rest show
   // their budget. RETURN is the total time left to get back to base.
@@ -1393,6 +1404,7 @@ export function Preview() {
         interiorRef={interiorRef}
         breathRef={breathRef}
         fogRef={fogRef}
+        status={fogWarn ? { title: 'VISOR FOGGING', message: 'Slow down to clear it' } : null}
       />
       </div>
       {mode === 'base' && (

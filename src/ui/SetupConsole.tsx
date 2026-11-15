@@ -1,6 +1,6 @@
 // Written with AI assistance (Claude).
 // Owner: Rachel. The EVA plan screen on the base console (TEAM-PLAN section 1a, the "SETUP" whiteboard).
-// Plain and simple, in the Mars palette (sand, tan, terracotta, clay red, teal):
+// Plain and simple, in the Mars palette (sand, tan, terracotta, clay red) with the visor's blue:
 // - left: the mission (one long traverse) and its subtasks to tick, then what the plan needs in plain words;
 // - right: a map of the real terrain (NASA/USGS HiRISE height model around Perseverance's landing site, north up),
 //   coloured low to high with soft shading and contour lines, the route, the numbered subtasks and the base.
@@ -124,7 +124,10 @@ function drawMap(canvas: HTMLCanvasElement, grid: Grid<Float32Array>, r: ReturnT
     lo = Math.min(lo, h);
     hi = Math.max(hi, h);
   }
-  const classes = SLOPE_CLASSES.map((c, i) => hexRgb(i === 0 ? MAP_BARE : c.colour)); // easy ground: plain paper
+  // Easy ground is plain paper; the slope colours are laid over it, stronger the steeper, and zigzag-only ground is
+  // striped (the same look as on the ground outside).
+  const paper = hexRgb(MAP_BARE);
+  const classes = SLOPE_CLASSES.map((c) => hexRgb(c.colour));
   const ease = (e0: number, e1: number, x: number) => Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
   const D = 5; // slope measured over about 4 m, like the height data
   const img = ctx.createImageData(MAP_W, MAP_H);
@@ -144,9 +147,12 @@ function drawMap(canvas: HTMLCanvasElement, grid: Grid<Float32Array>, r: ReturnT
       for (let c = 0; c < classes.length - 1; c++) t += ease(SLOPE_CLASSES[c].upTo - 0.75, SLOPE_CLASSES[c].upTo + 0.75, deg);
       const k = Math.min(classes.length - 2, Math.floor(t)), f = t - k;
       const a = classes[k], b = classes[k + 1];
-      img.data[i * 4] = Math.min(255, (a[0] + (b[0] - a[0]) * f) * shade);
-      img.data[i * 4 + 1] = Math.min(255, (a[1] + (b[1] - a[1]) * f) * shade);
-      img.data[i * 4 + 2] = Math.min(255, (a[2] + (b[2] - a[2]) * f) * shade);
+      const stripe = ease(3.5, 6.5, (px + py) % 12) - ease(9.5, 12, (px + py) % 12) > 0.5 ? 1 : 0.4; // diagonal stripes
+      const alpha = Math.min(1, t) * (0.62 + 0.08 * t) * (1 + (stripe - 1) * Math.max(0, t - 3));
+      for (let ch = 0; ch < 3; ch++) {
+        const tint = a[ch] + (b[ch] - a[ch]) * f;
+        img.data[i * 4 + ch] = Math.min(255, (paper[ch] + (tint - paper[ch]) * alpha) * shade);
+      }
       img.data[i * 4 + 3] = 255;
     }
   }
@@ -342,7 +348,14 @@ export function SetupConsole({ missions, chosen, onToggle, levels, heights, rout
           <div className="plan-map-key" aria-label="Ground colours by slope">
             {SLOPE_CLASSES.map((c, i) => (
               <span key={c.label}>
-                <i style={{ background: i === 0 ? MAP_BARE : c.colour }} />
+                <i
+                  style={{
+                    background:
+                      i === 0 ? MAP_BARE
+                      : i === SLOPE_CLASSES.length - 1 ? `repeating-linear-gradient(135deg, ${c.colour} 0 2px, ${MAP_BARE} 2px 3.5px)`
+                      : c.colour,
+                  }}
+                />
                 {c.label}
               </span>
             ))}

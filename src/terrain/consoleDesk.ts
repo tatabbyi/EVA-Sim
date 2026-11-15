@@ -135,7 +135,7 @@ export function createConsoleDesk(): ConsoleDesk {
   const keycap = keep(new THREE.MeshStandardMaterial({ color: '#efebe4', roughness: 0.45 }));
   const glow = keep(new THREE.MeshBasicMaterial({ color: '#e8bd78', side: THREE.DoubleSide }));
   const guard = keep(new THREE.MeshStandardMaterial({ color: '#a9a49b', roughness: 0.5, transparent: true, opacity: 0.8 }));
-  const statusLight = keep(new THREE.MeshBasicMaterial({ color: '#7fb3a6' })); // one quiet teal light
+  const statusLight = keep(new THREE.MeshBasicMaterial({ color: '#6fb2ff' })); // one quiet blue light
 
   // ---------- desktop, mat, fascia, kick plate, light line, grab rail ----------
   mesh(sectorGeometry(R_IN, R_OUT, SPAN, 0.035, 0.014), shell, group, 0, TOP - 0.035, 0);
