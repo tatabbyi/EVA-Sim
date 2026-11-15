@@ -60,6 +60,7 @@ import { createPathPlanner, type PathPlanner } from '../sim/planner';
 import { setCostTerrain, setHomeCost } from '../sim/cost';
 import { createTouchControls, type TouchControls } from './touchControls';
 import './Preview.css';
+import './touchControls.css';
 
 const EYE = 1.7;
 const MAX_SIDE = 1025;
