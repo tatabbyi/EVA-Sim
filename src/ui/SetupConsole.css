@@ -102,6 +102,21 @@
 .plan-task.is-hover {
   outline: 1px solid var(--tan);
 }
+.plan-task.is-upcoming {
+  grid-template-rows: auto; /* one line each, so the list still fits */
+  padding-top: 0.25cqw;
+  padding-bottom: 0.25cqw;
+  opacity: 0.45;
+  cursor: default;
+}
+.plan-soon {
+  margin-top: 0.3cqw;
+  font-size: 0.85cqw;
+  color: var(--ink-dim);
+}
+.plan-task.is-upcoming .plan-task-num {
+  background: var(--ink-dim);
+}
 .plan-task.is-done {
   opacity: 0.5;
   cursor: default;
