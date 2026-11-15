@@ -71,3 +71,8 @@
   white-space: nowrap;
   text-shadow: 0 0 6px rgba(111, 227, 255, 0.5);
 }
+/* The console's size units (SetupConsole.css sizes everything in cqw); a phone reflows it, see touchControls.css */
+.preview-console-units {
+  position: absolute;
+  inset: 0;
+}

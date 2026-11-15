@@ -53,7 +53,7 @@ export interface SetupConsoleProps {
 export const MAP_W = 1200, MAP_H = 1000; // map drawing size (about the shape of the map area); scaled to fit like "cover"
 
 /** A slope colour as it shows on the map: laid over the paper at this strength (CSS colour). */
-function washed(hex: string, alpha: number): string {
+export function washed(hex: string, alpha: number): string {
   const c = hexRgb(hex), p = hexRgb(MAP_BARE);
   return `rgb(${c.map((v, k) => Math.round(p[k] + (v - p[k]) * alpha)).join(',')})`;
 }

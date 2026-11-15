@@ -40,6 +40,7 @@ import { createHelmetInterior } from '../terrain/helmetInterior';
 import { addVRButton, createXRRig, type VRHudModel } from '../xr/xrRig';
 import { createVRWorld } from '../xr/vrWorld';
 import { createVRConsole, type VRConsoleModel } from '../xr/vrConsole';
+import { createTouchControls, isTouchDevice } from '../mobile/touchControls';
 import { createRockField, type RockField } from '../terrain/rockField';
 import { createSunShadows, type SunShadows } from '../terrain/shadows';
 import { createGlassPath } from '../ui/glassPath';
@@ -137,6 +138,8 @@ const PARAMS = new URLSearchParams(window.location.search);
 // This hash selects a page in Root; it is not an anchor within Preview.
 const RAW_DIAGNOSTICS_URL = new URL('#raw', window.location.href).href;
 const DEMO = PARAMS.get('demo');
+/** A phone or tablet: gyroscope look-around and on-screen controls (src/mobile/touchControls.ts). `?touch=1` forces it. */
+const TOUCH = typeof window !== 'undefined' && isTouchDevice();
 // Where the path outline is drawn: 'world' (3D arrows on the ground) or 'glass' (projected onto the visor).
 const OUTLINE_START: 'world' | 'glass' = PARAMS.get('outline') === 'glass' ? 'glass' : 'world';
 /**
@@ -273,8 +276,10 @@ export function Preview() {
     const host = hostRef.current!;
     let disposed = false;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    const res = createAdaptiveResolution(renderer); // lowers resolution if frames run slow
+    // Phones: no multisampling, and at most 1.5x resolution (dropping to 0.7x if frames run slow): a phone's 3x screen
+    // would draw four times the pixels of a laptop for the same picture.
+    const renderer = new THREE.WebGLRenderer({ antialias: !TOUCH, powerPreference: 'high-performance' });
+    const res = createAdaptiveResolution(renderer, TOUCH ? { max: Math.min(window.devicePixelRatio || 1, 1.5), min: 0.7 } : {}); // lowers resolution if frames run slow
     const lens = createVisorLens(renderer);
     const compass = createHudCompass(); // holographic compass on the glass, moved every frame on the EVA
     compassRef.current?.replaceChildren(compass.element);
@@ -373,6 +378,8 @@ export function Preview() {
       },
     });
     const openVRConsole = (on: boolean) => {
+      // Opening it is the headset's "sit down at the console": step to the seat, a comfortable distance from the screen.
+      if (on && !vrConsole.open) camera.position.set(room.seat.position.x, camera.position.y, room.seat.position.z);
       vrConsole.show(on);
       xr.setPointable(on ? vrConsole : null);
     };
@@ -381,7 +388,30 @@ export function Preview() {
       if (disposed) b?.remove();
       else vrButton = b;
     });
-    const looking = () => controls.isLocked || xr.presenting; // mouse captured, or in the headset
+    const looking = () => controls.isLocked || xr.presenting || !!touch?.started; // mouse captured, headset, or phone
+    // Phone (src/mobile/touchControls.ts): the gyroscope or a finger looks, a stick walks, A is E (or a click on the console).
+    const touch = TOUCH
+      ? createTouchControls(root, {
+          onStart: () => {
+            audio.start();
+            if (modeRef.current === 'eva') {
+              runtimeEngine?.resume();
+              runtimePausedRef.current = false;
+            }
+          },
+          onAction: () => {
+            if (modeRef.current === 'base' && room.aim(camera) === 'console') sitAtConsole();
+            else for (const type of ['keydown', 'keyup'] as const) window.dispatchEvent(new KeyboardEvent(type, { key: 'e', code: 'KeyE' }));
+          },
+          onJump: () => jump(),
+          onOption: (o) => {
+            if (o === 'outline') setOutline(outline === 'world' ? 'glass' : 'world');
+            else if (o === 'topology') setTopology(!topologyOn);
+            else audio.setMuted(!audio.muted);
+          },
+        })
+      : null;
+    const lookEuler = new THREE.Euler();
     const sway = createHeadSway(swayRef.current ?? root);
     // Sit down at the console (the view eases into the seat, then the Setup screen comes up) and stand up again.
     const sitAtConsole = () => {
@@ -405,6 +435,7 @@ export function Preview() {
     leaveConsoleRef.current = leaveConsole;
     if (DEMO === 'console') sitAtConsole();
     const onClick = () => {
+      if (touch) return; // taps are handled by the touch controls
       const m = modeRef.current;
       if (m === 'console') return;
       if (!controls.isLocked) {
@@ -474,7 +505,7 @@ export function Preview() {
     };
     const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
     const onBlur = () => {
-      if (xr.presenting) return; // entering the headset can blur the page: keep going
+      if (xr.presenting || touch) return; // entering the headset can blur the page; a phone pauses on hide (below)
       keys.clear();
       if (modeRef.current === 'eva') {
         runtimeEngine?.pause();
@@ -484,6 +515,14 @@ export function Preview() {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
+    // A phone: pause the EVA while the page is hidden (another app, the screen off), carry on when it's back.
+    const onVisibility = () => {
+      if (!touch || modeRef.current !== 'eva') return;
+      if (document.hidden) runtimeEngine?.pause();
+      else if (touch.started) runtimeEngine?.resume();
+      runtimePausedRef.current = document.hidden;
+    };
+    document.addEventListener('visibilitychange', onVisibility);
 
     const sky = createStarrySky(); // night sky, switchable in the Look panel
     sky.setPixelRatio(pr);
@@ -648,13 +687,13 @@ export function Preview() {
           if (!runtimeEngine || !runtimeClock || modeRef.current !== 'eva') return;
           camera.getWorldDirection(intent);
           const length = Math.hypot(intent.x, intent.z) || 1;
-          const fwd = Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + xr.input.forward; // keyboard, or the left stick
-          const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + xr.input.side;
+          const fwd = Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + xr.input.forward + (touch?.input.forward ?? 0); // keyboard, a stick
+          const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + xr.input.side + (touch?.input.side ?? 0);
           const enabled = looking() && !runtimeEngine.getSnapshot().paused && active < 0;
           runtimeEngine.dispatch({
             type: 'input',
             direction: enabled ? { x: (fwd * intent.x - side * intent.z) / length, z: (fwd * intent.z + side * intent.x) / length } : { x: 0, z: 0 },
-            run: keys.has('ShiftLeft') || keys.has('ShiftRight') || xr.input.run,
+            run: keys.has('ShiftLeft') || keys.has('ShiftRight') || xr.input.run || !!touch?.input.run,
           });
           // Fed in steps of at most 0.1 s: the fixed clock treats a bigger jump as a pause and skips it, which would
           // make fast-forward stall on a slow tick.
@@ -1059,7 +1098,27 @@ export function Preview() {
       const rawDt = (ms - last) / 1000;
       const realDt = Math.min(rawDt, 0.1);
       xr.update(realDt);
-      const speed = modeRef.current === 'eva' && (keys.has('KeyF') || xr.input.fast) ? FAST_FORWARD : 1;
+      const speed = modeRef.current === 'eva' && (keys.has('KeyF') || xr.input.fast || touch?.input.fast) ? FAST_FORWARD : 1;
+      if (touch) {
+        // Phone look: turn by what the gyroscope / finger turned since last frame; with the gyro on, the view's tilt is the
+        // phone's own (the horizon stays where it is in the room). Code that sets the view (the console, a task holding
+        // your eyes on a rock) keeps working: only the turn is added.
+        const t = touch.take(), m = modeRef.current;
+        touch.update(m, { outline, topology: topologyOn, sound: !audio.muted });
+        if (touch.started && m !== 'console' && !xr.presenting) {
+          if (controls.enabled) {
+            lookEuler.setFromQuaternion(camera.quaternion, 'YXZ');
+            lookEuler.y += t.yaw;
+            lookEuler.x = Math.max(-1.45, Math.min(1.45, t.absPitch ?? lookEuler.x + t.pitch));
+            lookEuler.z = 0;
+            camera.quaternion.setFromEuler(lookEuler);
+          } else {
+            headYaw = Math.max(-0.75, Math.min(0.75, headYaw + t.yaw));
+            headPitch = Math.max(-0.55, Math.min(0.55, headPitch + t.pitch));
+          }
+          if (t.yaw || t.pitch) sway.look(-t.yaw / 0.0036, -t.pitch / 0.0036); // the helmet lags the head, as with the mouse
+        }
+      }
       if (speed !== speedRef.current) {
         speedRef.current = speed;
         setFast(speed > 1);
@@ -1081,8 +1140,8 @@ export function Preview() {
       if (modeRef.current !== 'eva') {
         const w = host.clientWidth, h = host.clientHeight;
         if (modeRef.current === 'base') {
-          const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + xr.input.forward;
-          const side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + xr.input.side;
+          const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + xr.input.forward + (touch?.input.forward ?? 0);
+          const side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + xr.input.side + (touch?.input.side ?? 0);
           if (looking() && (fwd || side)) {
             const step = (1.5 * dt) / Math.hypot(fwd, side); // an indoor walk
             controls.moveForward(fwd * step);
@@ -1093,7 +1152,7 @@ export function Preview() {
           const aimed = looking() ? room.aim(camera) : null;
           const prompt = !looking()
             ? 'Click to look around · WASD to walk'
-            : aimed === 'console' ? 'Click · use the console' : aimed === 'hatch' ? 'E · suit up and go out' : '';
+            : aimed === 'console' ? `${touch ? 'A' : 'Click'} · use the console` : aimed === 'hatch' ? `${touch ? 'A' : 'E'} · suit up and go out` : '';
           if (prompt !== lastPrompt && time > promptHoldUntil) {
             lastPrompt = prompt;
             setBasePrompt(prompt);
@@ -1425,6 +1484,8 @@ export function Preview() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
+      document.removeEventListener('visibilitychange', onVisibility);
+      touch?.dispose();
       controls.dispose();
       gui.destroy();
       sky.dispose();
@@ -1553,7 +1614,7 @@ export function Preview() {
     : !tour ? 'No walkable route for this plan'
     : planError ? planError
     : !planFits ? 'The plan does not fit: check O₂ and time at the console' : null;
-  vrConsoleRef.current = { missions, chosen: chosen.map((c, i) => c && !objDone[i]), levels, heights: heightsLoaded, route: setupRoute, routeTo, base: door, ready: !launchWhy, why: launchWhy };
+  vrConsoleRef.current = { missions, upcoming: UPCOMING_TASKS, chosen: chosen.map((c, i) => c && !objDone[i]), levels, heights: heightsLoaded, route: setupRoute, routeTo, base: door, ready: !launchWhy, why: launchWhy };
   const beginEva = () => {
     setSecondsLeft(EVA_MINUTES * 60);
     setObjSpent((prev) => prev.map((v, i) => (objDone[i] ? v : 0)));
@@ -1576,6 +1637,7 @@ export function Preview() {
       <div className={mode === 'eva' ? undefined : 'preview-hidden'}>
       <div ref={glassRef} className="preview-glass" />
       <HelmetHud
+        acceptLabel={TOUCH ? 'A' : undefined}
         objectives={hudObjectives}
         alert={alert}
         o2={hudO2}
@@ -1615,6 +1677,7 @@ export function Preview() {
       )}
       {mode === 'console' && (
         <div ref={consoleRef} className="preview-console" style={{ visibility: 'hidden' }}>
+          <div className="preview-console-units">
           <SetupConsole
             missions={missions}
             upcoming={UPCOMING_TASKS}
@@ -1628,6 +1691,7 @@ export function Preview() {
             ready={!launchWhy}
             onClose={() => leaveConsoleRef.current()}
           />
+          </div>
         </div>
       )}
       <div className="preview-badge" ref={badgeRef} style={{ display: 'none' }}>

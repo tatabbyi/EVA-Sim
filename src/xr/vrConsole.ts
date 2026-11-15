@@ -8,7 +8,8 @@
 // It reads the console's own props each frame and calls the same toggle, so both stay one plan.
 
 import * as THREE from 'three';
-import { drawMap, mapRegion, MAP_H, MAP_W, type SetupLevels, type SetupMission } from '../ui/SetupConsole';
+import { drawMap, mapRegion, MAP_H, MAP_W, washed, type SetupLevels, type SetupMission } from '../ui/SetupConsole';
+import { SLOPE_CLASSES, slopeWash } from '../ui/palette';
 import type { Grid } from '../shared/grids';
 import type { Pointable } from './xrRig';
 
@@ -17,6 +18,8 @@ export type VROption = 'outline' | 'topology' | 'sound';
 
 export interface VRConsoleModel {
   missions: SetupMission[];
+  /** Tasks listed after the missions but not selectable yet (coming soon). */
+  upcoming: { title: string; minutes: number }[];
   chosen: boolean[];
   levels: SetupLevels | null;
   heights: Grid<Float32Array> | null;
@@ -167,6 +170,27 @@ export function createVRConsole(screen: { object: THREE.Object3D; width: number;
     ctx.lineTo(W - 92, 96);
     ctx.fill();
     text(ctx, 'N', W - 80, 124, 26, 800, C.ink, 'center');
+    // Ground colours by slope (the desktop map key)
+    const keyW = SLOPE_CLASSES.length * 142 + 24, kx = W - keyW - 28, ky = H - 76;
+    box(ctx, kx, ky, keyW, 52, 26, 'rgba(247, 242, 234, 0.92)');
+    SLOPE_CLASSES.forEach((c, i) => {
+      box(ctx, kx + 20 + i * 142, ky + 16, 20, 20, 4, washed(c.colour, slopeWash(i)), 'rgba(58, 42, 32, 0.35)', 1);
+      text(ctx, c.label, kx + 48 + i * 142, ky + 27, 20, 600, C.ink, 'left', 0, 104);
+    });
+    // VR options (the desktop's O, T and M keys), over the top of the map
+    const opts: [VROption, string][] = [
+      ['outline', `Path: ${m.options.outline === 'glass' ? 'Glass' : 'World'}`],
+      ['topology', `Topology: ${m.options.topology ? 'On' : 'Off'}`],
+      ['sound', `Sound: ${m.options.sound ? 'On' : 'Off'}`],
+    ];
+    const pw = 210;
+    box(ctx, LEFT + 20, 20, 3 * pw + 2 * 12 + 24, 80, 40, 'rgba(247, 242, 234, 0.92)');
+    opts.forEach(([id, label], i) => {
+      const px = LEFT + 32 + i * (pw + 12), py = 32;
+      box(ctx, px, py, pw, 56, 28, hoverId === id ? '#ffffff' : C.panel2, hoverId === id ? C.blue : C.dim, 2);
+      text(ctx, label, px + pw / 2, py + 29, 22, 700, hoverId === id ? C.blue : C.ink, 'center');
+      hit(px, py, pw, 56, id);
+    });
     ctx.restore();
 
     // ---- left: the plan
@@ -175,25 +199,39 @@ export function createVRConsole(screen: { object: THREE.Object3D; width: number;
     text(ctx, '←', x + 32, 56, 44, 700, hoverId === 'close' ? C.blue : C.ink, 'center');
     hit(x, 24, 64, 64, 'close');
     let y = 104;
-    const tasksH = 70 + m.missions.length * 74;
+    const ROW = 62, tasksH = 70 + m.missions.length * ROW + (m.upcoming.length ? 40 + m.upcoming.length * 40 : 0);
     box(ctx, x, y, cw, tasksH, 16, C.panel);
     text(ctx, 'Ridge field traverse', x + 24, y + 38, 36, 800, C.ink);
     m.missions.forEach((mi, i) => {
-      const ry = y + 70 + i * 74, id = `task${i}`;
-      box(ctx, x + 16, ry, cw - 32, 64, 10, hoverId === id && !mi.done ? '#ffffff' : C.panel2);
+      const ry = y + 66 + i * ROW, id = `task${i}`;
+      box(ctx, x + 16, ry, cw - 32, ROW - 6, 10, hoverId === id && !mi.done ? '#ffffff' : C.panel2);
       ctx.globalAlpha = mi.done ? 0.55 : 1;
-      box(ctx, x + 32, ry + 17, 30, 30, 6, m.chosen[i] ? C.blue : '#ffffff', m.chosen[i] ? C.blue : C.dim);
-      if (m.chosen[i]) text(ctx, '✓', x + 47, ry + 33, 24, 800, '#fff', 'center');
+      const cy = ry + (ROW - 6) / 2;
+      box(ctx, x + 32, cy - 15, 30, 30, 6, m.chosen[i] ? C.blue : '#ffffff', m.chosen[i] ? C.blue : C.dim);
+      if (m.chosen[i]) text(ctx, '✓', x + 47, cy + 1, 24, 800, '#fff', 'center');
       ctx.beginPath();
-      ctx.arc(x + 96, ry + 32, 19, 0, Math.PI * 2);
+      ctx.arc(x + 96, cy, 19, 0, Math.PI * 2);
       ctx.fillStyle = C.clay;
       ctx.fill();
-      text(ctx, String(i + 1), x + 96, ry + 33, 22, 800, '#fff', 'center');
-      text(ctx, mi.title, x + 130, ry + 32, 28, 600, C.ink);
-      text(ctx, mi.done ? 'Done' : `${mi.minutes} min`, x + cw - 36, ry + 32, 24, 500, C.dim, 'right');
+      text(ctx, String(i + 1), x + 96, cy + 1, 22, 800, '#fff', 'center');
+      text(ctx, mi.title, x + 130, cy, 28, 600, C.ink, 'left', 0, cw - 260);
+      text(ctx, mi.done ? 'Done' : `${mi.minutes} min`, x + cw - 36, cy, 24, 500, C.dim, 'right');
       ctx.globalAlpha = 1;
-      if (!mi.done) hit(x + 16, ry, cw - 32, 64, id);
+      if (!mi.done) hit(x + 16, ry, cw - 32, ROW - 6, id);
     });
+    if (m.upcoming.length) {
+      const sy = y + 66 + m.missions.length * ROW;
+      text(ctx, 'COMING SOON', x + 32, sy + 20, 18, 700, C.dim, 'left', 0.12);
+      m.upcoming.forEach((u, i) => {
+        const cy = sy + 58 + i * 40;
+        ctx.globalAlpha = 0.5;
+        box(ctx, x + 36, cy - 11, 22, 22, 5, '#ffffff', C.dim, 1.5);
+        text(ctx, String(m.missions.length + i + 1), x + 96, cy, 20, 700, C.dim, 'center');
+        text(ctx, u.title, x + 130, cy, 22, 600, C.ink, 'left', 0, cw - 260);
+        text(ctx, `${u.minutes} min`, x + cw - 36, cy, 20, 500, C.dim, 'right');
+        ctx.globalAlpha = 1;
+      });
+    }
     y += tasksH + 18;
     const l = m.levels;
     box(ctx, x, y, cw, H - y - 24, 16, C.panel);
@@ -219,26 +257,11 @@ export function createVRConsole(screen: { object: THREE.Object3D; width: number;
       row('Base O₂ storage', 'Not simulated', '', null, 'ok');
     } else text(ctx, 'Loading…', x + 24, yy, 26, 600, C.dim);
     // Save plan, and why you can't go out yet
-    const by = Math.max(yy + 4, H - 250);
+    const by = Math.max(yy + 4, H - 116);
     box(ctx, x + 24, by, 260, 62, 10, hoverId === 'save' ? '#ffffff' : null, hoverId === 'save' ? C.blue : C.ink, 2);
     text(ctx, 'Save plan →', x + 154, by + 32, 26, 700, hoverId === 'save' ? C.blue : C.ink, 'center');
     hit(x + 24, by, 260, 62, 'save');
-    text(ctx, m.ready ? 'Ready: suit up at the hatch' : m.why ?? '', x + 300, by + 32, 22, 600, m.ready ? C.blue : C.clay);
-    // VR options (the desktop's O, T and M keys)
-    const oy2 = H - 140;
-    text(ctx, 'VR OPTIONS', x + 24, oy2, 20, 700, C.sand, 'left', 0.12);
-    const opts: [VROption, string][] = [
-      ['outline', `Path: ${m.options.outline === 'glass' ? 'Glass' : 'World'}`],
-      ['topology', `Topology: ${m.options.topology ? 'On' : 'Off'}`],
-      ['sound', `Sound: ${m.options.sound ? 'On' : 'Off'}`],
-    ];
-    const pw = (cw - 48 - 2 * 14) / 3;
-    opts.forEach(([id, label], i) => {
-      const px = x + 24 + i * (pw + 14), py = oy2 + 22;
-      box(ctx, px, py, pw, 56, 28, hoverId === id ? '#ffffff' : C.panel2, hoverId === id ? C.blue : C.dim, 2);
-      text(ctx, label, px + pw / 2, py + 29, 22, 700, hoverId === id ? C.blue : C.ink, 'center');
-      hit(px, py, pw, 56, id);
-    });
+    text(ctx, m.ready ? 'Ready: suit up at the hatch' : m.why ?? '', x + 300, by + 32, 22, 600, m.ready ? C.blue : C.clay, 'left', 0, cw - 300);
   };
 
   const at = (uv: THREE.Vector2) => {
