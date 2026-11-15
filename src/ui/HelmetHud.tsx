@@ -72,8 +72,6 @@ export interface HelmetHudProps {
   fastForward?: number | null;
   /** Receives the slot for the holographic compass (hudCompass.ts), low on the left of the glass (see Preview). */
   compassRef?: MutableRefObject<HTMLDivElement | null>;
-  /** The accept key's name as shown, when it isn't the keyboard key (a phone shows its A button). */
-  acceptLabel?: string;
 }
 
 // ---------- Visor geometry ----------
@@ -417,7 +415,7 @@ const HelmetFrame = memo(function HelmetFrame({ w, h, uid }: { w: number; h: num
   );
 });
 
-export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, sheenRef, targetRef, interiorRef, breathRef, fogRef, status, fastForward, compassRef, acceptLabel }: HelmetHudProps) {
+export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, sheenRef, targetRef, interiorRef, breathRef, fogRef, status, fastForward, compassRef }: HelmetHudProps) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const id = (name: string) => `${uid}-${name}`;
   const helmetRef = useRef<HTMLDivElement>(null);
@@ -542,7 +540,7 @@ export function HelmetHud({ objectives, alert, o2, temperature, swayTargetRef, s
                     {alert.message}
                     {alert.onAccept && (
                       <tspan className="hud-alert-key" dx="0.6em">
-                        [{acceptLabel ?? (alert.acceptKey ?? 'E').toUpperCase()}]
+                        [{(alert.acceptKey ?? 'E').toUpperCase()}]
                       </tspan>
                     )}
                   </textPath>
