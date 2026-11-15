@@ -1527,7 +1527,7 @@ export function Preview() {
         }}
         alert={alert}
         o2={physicalHud?.o2 ?? { label: 'O₂', value: 'N/A', fraction: 0 }}
-        temperature={tempBar(sample.tempC)}
+        temperature={physicalHud?.temperature ?? tempBar(sample.tempC)}
         swayTargetRef={swayRef}
         sheenRef={sheenRef}
         targetRef={targetRef}
@@ -1543,7 +1543,7 @@ export function Preview() {
         <div style={{ position: 'absolute', left: 16, bottom: 12, zIndex: 20, color: '#e8edf0', background: '#121820cc', padding: 8, fontSize: 12 }} aria-label="EVA physics telemetry">
           <div>{runtimeSnapshot?.physics?.emergencyTest ? 'TEST: 2 g EMERGENCY · ' : ''}ENGINEERING SCENARIO · {runtimeSnapshot?.mission.status ?? 'loading'} · {runtimeSnapshot?.paused ? 'PAUSED' : runtimeSnapshot?.physics?.activity}</div>
           <div>O₂ {runtimeSnapshot?.resources.oxygenGrams?.toFixed(3)} / 750 g · {runtimeSnapshot?.physics?.oxygenRateGramsPerHour.toFixed(2)} g/h · {runtimeSnapshot?.physics?.metabolicPowerWatts.toFixed(1)} W</div>
-          <div>Elapsed {runtimeSnapshot?.simTimeSeconds.toFixed(1)} s · X {runtimeSnapshot?.player.position.x.toFixed(2)} · Z {runtimeSnapshot?.player.position.z.toFixed(2)} m · BODY TEMP: VISUAL DEMO</div>
+          <div>Elapsed {runtimeSnapshot?.simTimeSeconds.toFixed(1)} s · X {runtimeSnapshot?.player.position.x.toFixed(2)} · Z {runtimeSnapshot?.player.position.z.toFixed(2)} m · TEMP {physicalHud?.temperature.value ?? 'N/A'} · MODELED / NOT NASA-VALIDATED</div>
           <div>Terrain: demo-shaped HiRISE-derived</div>
           <button onClick={() => { const e = runtimeRef.current; if (!e) return; e.dispatch({ type: e.getSnapshot().paused ? 'resume' : 'pause' }); runtimePausedRef.current = e.getSnapshot().paused; if (runtimePausedRef.current) document.exitPointerLock(); setRuntimeSnapshot(e.getSnapshot()); }}>{runtimeSnapshot?.paused ? 'Resume' : 'Pause'}</button>
           <button onClick={() => { if (window.location.search) window.location.replace(window.location.pathname + window.location.hash); else window.location.reload(); }}>Reset to base</button> <a href={RAW_DIAGNOSTICS_URL}>RAW diagnostics</a>

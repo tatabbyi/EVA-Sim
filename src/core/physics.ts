@@ -1,5 +1,6 @@
 // Written with AI assistance (Codex). Pure SI-unit engineering demo, not a validated Mars suit model.
 import { contains, type Bounds, type XZ } from './contracts.ts';
+import type { ThermalScenario } from '../physics/thermal-scenario.ts';
 
 // NASA-REF N01: NASA/TP-2015-218570/REV1 (2018), Table 4-76, printed p143,
 // https://ntrs.nasa.gov/citations/20180001338 : 293 W, 0.075 kg O2/hour (RQ 0.9).
@@ -26,6 +27,8 @@ export const MARS_EVA_DEMO_PROFILE: Readonly<MarsEVAEngineeringProfile> = Object
 export type DemoPhysicsOptions = {
   profile: Readonly<MarsEVAEngineeringProfile>; heightAt(x: number, z: number): number | null;
   carriedMassKg: number; initialOxygenGrams?: number; emergencyTest?: boolean;
+  /** Physics EVA uses the disclosed thermal engineering scenario; false preserves opt-out callers. */
+  thermal?: Readonly<ThermalScenario> | false;
 };
 export type OxygenWarning = 'normal' | 'low' | 'critical' | 'depleted';
 export type PhysicsTelemetry = {

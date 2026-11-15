@@ -99,8 +99,8 @@ test('initial zero is terminal immediately; warning events are transitions, unsu
  const critical=setup({initialOxygenGrams:75+gramsPerHour(165)/3600*.05,emergencyTest:true}),criticalEvents=[];critical.onEvent(v=>{if(v.type==='oxygen-warning')criticalEvents.push(v.level);});critical.step(.1);critical.step(.1);assert.deepEqual(criticalEvents,['critical']);
  assert.equal(oxygenWarning(150,profile),'low');assert.equal(oxygenWarning(75,profile),'critical');assert.equal(oxygenWarning(0,profile),'depleted');
 });
-test('HUD prioritizes failed/critical/low/boundary, correct emergency percent and unknown suit TEMP',()=>{
- const normal=setup(),initial=normal.getSnapshot(),hud=toHelmetHud(initial);assert.equal(hud.o2.fraction,1);assert.equal(hud.o2.value,'100.00%');assert.equal(hud.temperature.value,'N/A');
+test('HUD prioritizes failed/critical/low/boundary, correct emergency percent and modeled suit TEMP',()=>{
+ const normal=setup(),initial=normal.getSnapshot(),hud=toHelmetHud(initial);assert.equal(hud.o2.fraction,1);assert.equal(hud.o2.value,'100.00%');assert.equal(hud.temperature.value,'23.0°C');assert.equal(toHelmetHud({...initial,thermal:undefined}).temperature.value,'N/A');
  const e=setup({initialOxygenGrams:2,emergencyTest:true}),s=e.getSnapshot(),qa=toHelmetHud({...s,boundaryWarning:true});
  close(qa.o2.fraction,2/750);assert.equal(qa.o2.value,'0.27%');assert.equal(qa.alert.title,'CRITICAL O₂');assert.equal(s.resources.oxygenCapacityGrams,750);assert.equal(s.physics.emergencyTest,true);
  const low=setup({initialOxygenGrams:150,emergencyTest:true});assert.equal(toHelmetHud({...low.getSnapshot(),boundaryWarning:true}).alert.title,'LOW O₂');
