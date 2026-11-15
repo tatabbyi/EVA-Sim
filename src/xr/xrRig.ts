@@ -9,6 +9,7 @@
 //   left stick  = WASD (walk where you look)     right stick = snap turn 30°
 //   grip        = Shift (faster)                  A / X or trigger = E (start an objective, accept, airlock, hatch)
 //   B / Y held  = F (fast-forward)                left stick click = show the controls again
+//   right stick click = Space (jump)              on a panel (the console): the laser points, A / trigger clicks
 // The HTML/SVG HUD can't be drawn inside an immersive session, so the same HUD is rebuilt in 3D (vrHud.ts): a curved
 // visor band in front of you with the objectives, alert, O₂ and BODY bars, and the compass.
 // It opens on a short controls tutorial (VR_TUTORIAL); the first A / X / trigger press closes it.
@@ -37,7 +38,22 @@ export interface XRRig {
     /** Draw `scene` for the headset, eyes at the game camera (feet `eyeHeight` below it); then copy the head's look into it. */
     render(scene: THREE.Scene, game: THREE.PerspectiveCamera, eyeHeight: number, hud: VRHudModel): void;
 
+    /** Things fixed to your head (helmet interior, visor fog): add them here; they move with the head, no lag. */
+    readonly head: THREE.Object3D;
+
+    /** A panel the controllers can point at (the console). While set, A / trigger on it clicks instead of acting. */
+    setPointable(p: Pointable | null): void;
+
     dispose(): void;
+}
+
+/** Something the laser can point at: hit-tested on `mesh`; uv is where on it (0..1, v up). */
+export interface Pointable {
+    mesh: THREE.Mesh;
+
+    hover(uv: THREE.Vector2 | null): void;
+
+    click(uv: THREE.Vector2): void;
 }
 
 const SNAP = Math.PI / 6; // 30° per snap turn
@@ -49,7 +65,8 @@ export const VR_TUTORIAL: HudLine[] = [
     {text: 'Left stick: walk where you look · Grip: faster'},
     {text: 'Right stick: turn 30°'},
     {text: 'A / X or trigger: start a task, accept, hatch, airlock'},
-    {text: 'Hold B / Y: fast-forward time'},
+    {text: 'Hold B / Y: fast-forward time · Click the right stick: jump'},
+    {text: 'Console: point with the laser, A or trigger to click'},
     {text: 'Click the left stick: show these controls again'},
 ];
 
@@ -68,19 +85,22 @@ export interface Pads {
     run: boolean;
     fast: boolean;
     action: boolean;
-    help: boolean
+    help: boolean;
+    jump: boolean
 }
 
 /** axes[2], axes[3] = thumbstick (up is negative); buttons 0 trigger, 1 grip, 3 stick click, 4 A/X, 5 B/Y. */
 export function readPads(sources: Iterable<Pad>): Pads {
-    const p: Pads = {forward: 0, side: 0, turn: 0, run: false, fast: false, action: false, help: false};
+    const p: Pads = {forward: 0, side: 0, turn: 0, run: false, fast: false, action: false, help: false, jump: false};
     for (const source of sources) {
         const gp = source.gamepad;
         if (!gp) continue;
         const stick = (i: number) => (Math.abs(gp.axes[i] ?? 0) > DEAD ? gp.axes[i] : 0);
         const down = (i: number) => !!gp.buttons[i]?.pressed;
-        if (source.handedness === 'right') p.turn = stick(2);
-        else {
+        if (source.handedness === 'right') {
+            p.turn = stick(2);
+            p.jump ||= down(3);
+        } else {
             p.side = stick(2);
             p.forward = -stick(3) || 0; // (no -0 when centred)
             p.help ||= down(3);
@@ -96,17 +116,20 @@ export interface PadState {
     turned: boolean;
     actionHeld: boolean;
     helpHeld: boolean;
+    jumpHeld: boolean;
     tutorial: boolean
 }
 
-export const newPadState = (): PadState => ({turned: false, actionHeld: false, helpHeld: false, tutorial: true});
+export const newPadState = (): PadState => ({turned: false, actionHeld: false, helpHeld: false, jumpHeld: false, tutorial: true});
 
 /**
  * One frame of button logic: a snap turn per flick of the right stick, the action once per press (the first press
- * only closes the tutorial), a left stick click opens the tutorial again. Returns the turn (radians) and the action.
+ * only closes the tutorial), a left stick click opens the tutorial again, a right stick click jumps (once per click).
  */
-export function stepPads(s: PadState, p: Pads): { turnBy: number; action: boolean } {
+export function stepPads(s: PadState, p: Pads): { turnBy: number; action: boolean; jump: boolean } {
     let turnBy = 0, action = false;
+    const jump = p.jump && !s.jumpHeld;
+    s.jumpHeld = p.jump;
     if (Math.abs(p.turn) > 0.6 && !s.turned) {
         turnBy = -Math.sign(p.turn) * SNAP; // stick right = turn right (clockwise seen from above)
         s.turned = true;
@@ -118,7 +141,7 @@ export function stepPads(s: PadState, p: Pads): { turnBy: number; action: boolea
     s.actionHeld = p.action;
     if (p.help && !s.helpHeld) s.tutorial = true;
     s.helpHeld = p.help;
-    return {turnBy, action};
+    return {turnBy, action, jump};
 }
 
 /** Adds an ENTER VR button to `parent` only where an immersive headset session is possible (e.g. Quest Browser). */
@@ -132,11 +155,13 @@ export async function addVRButton(renderer: THREE.WebGLRenderer, parent: HTMLEle
 
 export function createXRRig(renderer: THREE.WebGLRenderer, events: {
     onAction(): void;
+    onJump(): void;
     onStart(): void;
     onEnd(): void
 }): XRRig {
     renderer.xr.enabled = true;
     renderer.xr.setReferenceSpaceType('local-floor');
+    // The rig goes into whichever scene is drawn, so things fixed to the head (and the controllers) render with it.
     const rig = new THREE.Group(), head = new THREE.PerspectiveCamera(80, 1, 0.05, 8000);
     rig.add(head);
     const input: XRInput = {forward: 0, side: 0, run: false, fast: false};
@@ -145,6 +170,54 @@ export function createXRRig(renderer: THREE.WebGLRenderer, events: {
     // ---- the helmet HUD in 3D (vrHud.ts), following where you face
     const hud = createVRHud();
     let hudYaw = 0;
+
+    // ---- controllers: a small suit-glove block on each, and a laser when a panel can be pointed at
+    const gloveMat = new THREE.MeshStandardMaterial({color: '#e6dcc8', roughness: 0.7});
+    const gloveGeo = new THREE.BoxGeometry(0.05, 0.035, 0.09);
+    const laserMat = new THREE.LineBasicMaterial({color: '#6fe3ff', transparent: true, opacity: 0.85});
+    const laserGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.008, 12, 8), new THREE.MeshBasicMaterial({color: '#6fe3ff', depthTest: false}));
+    dot.renderOrder = 1001;
+    const controllers = [0, 1].map((i) => {
+        const c = renderer.xr.getController(i);
+        const glove = new THREE.Mesh(gloveGeo, gloveMat);
+        glove.position.set(0, -0.01, 0.04);
+        const laser = new THREE.Line(laserGeo, laserMat);
+        laser.visible = false;
+        c.add(glove, laser);
+        c.userData.hand = '';
+        c.addEventListener('connected', (e) => (c.userData.hand = (e as unknown as { data: XRInputSource }).data.handedness));
+        c.addEventListener('disconnected', () => (c.userData.hand = ''));
+        rig.add(c);
+        return {c, laser};
+    });
+    rig.add(dot);
+    let pointable: Pointable | null = null, pointed: THREE.Vector2 | null = null;
+    const ray = new THREE.Raycaster(), rot = new THREE.Matrix4();
+    /** Where a controller's laser meets the pointable panel (right hand first), and shows that laser. */
+    const point = () => {
+        pointed = null;
+        dot.visible = false;
+        for (const {laser} of controllers) laser.visible = false;
+        if (!pointable || !pointable.mesh.visible) return pointable?.hover(null);
+        rig.updateMatrixWorld(true);
+        const order = [...controllers].sort((a, b) => Number(b.c.userData.hand === 'right') - Number(a.c.userData.hand === 'right'));
+        for (const {c, laser} of order) {
+            if (!c.userData.hand) continue;
+            rot.extractRotation(c.matrixWorld);
+            ray.ray.origin.setFromMatrixPosition(c.matrixWorld);
+            ray.ray.direction.set(0, 0, -1).applyMatrix4(rot);
+            const hit = ray.intersectObject(pointable.mesh, false)[0];
+            if (!hit?.uv) continue;
+            laser.visible = true;
+            laser.scale.z = hit.distance;
+            dot.position.copy(rig.worldToLocal(hit.point.clone()));
+            dot.visible = true;
+            pointed = hit.uv.clone();
+            break;
+        }
+        pointable.hover(pointed);
+    };
 
     const reset = () => Object.assign(input, {forward: 0, side: 0, run: false, fast: false});
     const onStart = () => {
@@ -155,6 +228,7 @@ export function createXRRig(renderer: THREE.WebGLRenderer, events: {
     const onEnd = () => {
         reset();
         hud.group.removeFromParent();
+        rig.removeFromParent();
         events.onEnd();
     };
     renderer.xr.addEventListener('sessionstart', onStart);
@@ -168,19 +242,30 @@ export function createXRRig(renderer: THREE.WebGLRenderer, events: {
             return renderer.xr.isPresenting;
         },
         input,
+        head,
+        setPointable(p) {
+            pointable?.hover(null);
+            pointable = p;
+        },
         update(dt) {
             const session = renderer.xr.getSession();
             if (!session) return;
             const p = readPads(session.inputSources);
             Object.assign(input, {forward: p.forward, side: p.side, run: p.run, fast: p.fast});
-            const {turnBy, action} = stepPads(pads, p);
+            const {turnBy, action, jump} = stepPads(pads, p);
             yaw += turnBy;
-            if (action) events.onAction();
+            point();
+            if (action) {
+                if (pointable && pointed) pointable.click(pointed); // on the panel: a click
+                else events.onAction(); // anywhere else: E
+            }
+            if (jump) events.onJump();
             hudYaw += Math.atan2(Math.sin(yawOf(head.getWorldQuaternion(q)) - hudYaw), Math.cos(yawOf(q) - hudYaw)) * Math.min(1, dt * 3);
         },
         render(scene, game, eyeHeight, model) {
             rig.position.set(game.position.x, game.position.y - eyeHeight, game.position.z);
             rig.rotation.set(0, yaw, 0);
+            if (rig.parent !== scene) scene.add(rig);
             rig.updateMatrixWorld(true);
             // HUD: a visor band round your eyes, a little low, gently following where you face (not glued to the head).
             hud.update(pads.tutorial ? {...model, tutorial: VR_TUTORIAL} : model);
@@ -205,6 +290,8 @@ export function createXRRig(renderer: THREE.WebGLRenderer, events: {
             renderer.xr.removeEventListener('sessionend', onEnd);
             void renderer.xr.getSession()?.end();
             hud.dispose();
+            rig.removeFromParent();
+            for (const d of [gloveMat, gloveGeo, laserMat, laserGeo, dot.geometry, dot.material as THREE.Material]) d.dispose();
         },
     };
 }

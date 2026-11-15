@@ -38,6 +38,8 @@ import { createAdaptiveResolution } from '../shared/perf';
 import { createVisorLens } from '../terrain/visorLens';
 import { createHelmetInterior } from '../terrain/helmetInterior';
 import { addVRButton, createXRRig, type VRHudModel } from '../xr/xrRig';
+import { createVRWorld } from '../xr/vrWorld';
+import { createVRConsole, type VRConsoleModel } from '../xr/vrConsole';
 import { createRockField, type RockField } from '../terrain/rockField';
 import { createSunShadows, type SunShadows } from '../terrain/shadows';
 import { createGlassPath } from '../ui/glassPath';
@@ -204,6 +206,8 @@ export function Preview() {
   const leaveConsoleRef = useRef<() => void>(() => {});
   // The web HUD's props, handed to the 3D headset HUD (src/xr/vrHud.ts) each render, so both show the same thing.
   const vrRef = useRef<Omit<VRHudModel, 'outdoors' | 'compass' | 'prompt' | 'tutorial'> | null>(null);
+  // The Setup console's props, for the headset's console on the monitor (src/xr/vrConsole.ts): the same plan.
+  const vrConsoleRef = useRef<Omit<VRConsoleModel, 'options'> | null>(null);
   const launchRef = useRef<() => string | null>(() => null); // go out through the airlock; returns why not, if not
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const beginEvaRef = useRef<(chosen: boolean[], plan: TourPlan | null) => void>(() => {});
@@ -336,23 +340,42 @@ export function Preview() {
     const controls = new PointerLockControls(camera, renderer.domElement);
     controls.pointerSpeed = 1.8; // snappier mouse look
     // Headset (WebXR, src/xr/xrRig.ts): controllers stand in for the keyboard and mouse; the A/X button or trigger is E.
-    let outlineBeforeVR = outline;
     const xr = createXRRig(renderer, {
       onAction: () => {
         for (const type of ['keydown', 'keyup'] as const) window.dispatchEvent(new KeyboardEvent(type, { key: 'e', code: 'KeyE' }));
       },
+      onJump: () => jump(),
       onStart: () => {
-        outlineBeforeVR = outline;
-        setOutline('world'); // the visor-glass path is drawn on the page, which a headset can't show: 3D arrows instead
-        if (modeRef.current === 'console') leaveConsole(); // the Setup screen is a page overlay too: plan outside VR
+        if (modeRef.current === 'console') {
+          leaveConsole(); // the desktop Setup screen is a page overlay: the headset gets its own on the monitor
+          openVRConsole(true);
+        }
         audio.start();
         if (modeRef.current === 'eva') {
           runtimeEngine?.resume();
           runtimePausedRef.current = false;
         }
       },
-      onEnd: () => setOutline(outlineBeforeVR),
+      onEnd: () => {
+        openVRConsole(false);
+        vrWorld.detach();
+      },
     });
+    // What the desktop draws on the page, in 3D for the headset (src/xr/vrWorld.ts, src/xr/vrConsole.ts).
+    const vrWorld = createVRWorld(interior.vrKit());
+    const vrConsole = createVRConsole(room.screen, {
+      toggle: (i) => setChosen((prev) => prev.map((c, k) => (k === i ? !c : c))), // the desktop console's toggle
+      close: () => openVRConsole(false),
+      option: (o) => {
+        if (o === 'outline') setOutline(outline === 'world' ? 'glass' : 'world');
+        else if (o === 'topology') setTopology(!topologyOn);
+        else audio.setMuted(!audio.muted);
+      },
+    });
+    const openVRConsole = (on: boolean) => {
+      vrConsole.show(on);
+      xr.setPointable(on ? vrConsole : null);
+    };
     let vrButton: HTMLElement | null = null;
     void addVRButton(renderer, rootRef.current ?? root).then((b) => {
       if (disposed) b?.remove();
@@ -414,6 +437,13 @@ export function Preview() {
     // Jumping in Mars gravity (3.71 m/s²): about 0.8 m high and well over a second in the air.
     const JUMP_SPEED = 3.2, MARS_G = 3.71; // about 1.4 m high, 1.7 s in the air
     let vy = 0, airborne = false;
+    const jump = () => {
+      if (modeRef.current === 'eva' && !airborne && active < 0) {
+        vy = JUMP_SPEED;
+        airborne = true;
+        sway.look(0, 22); // the helmet lurches as you push off
+      }
+    };
     let devTools = false; // Look panel + test label, hidden unless you press the backtick key
     const onKeyDown = (e: KeyboardEvent) => {
       keys.add(e.code);
@@ -426,6 +456,7 @@ export function Preview() {
       }
       if (e.code === 'KeyM') audio.setMuted(!audio.muted);
       if (modeRef.current === 'console' && e.code === 'Escape') leaveConsole();
+      if (modeRef.current === 'base' && e.code === 'KeyE' && xr.presenting && !vrConsole.open && room.aim(camera) === 'console') openVRConsole(true);
       if (modeRef.current === 'base' && e.code === 'KeyE' && looking() && room.aim(camera) === 'hatch') {
         const why = launchRef.current(); // suit up and go out, if there is a plan
         if (why) {
@@ -438,11 +469,7 @@ export function Preview() {
       if (e.code === 'KeyT' && modeRef.current === 'eva') setTopology(!topologyOn);
       if (e.code === 'Space') {
         e.preventDefault(); // don't scroll the page
-        if (modeRef.current === 'eva' && !airborne && active < 0) {
-          vy = JUMP_SPEED;
-          airborne = true;
-          sway.look(0, 22); // the helmet lurches as you push off
-        }
+        jump();
       }
     };
     const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
@@ -545,6 +572,7 @@ export function Preview() {
       route = createRoutePath(pts, groundAt);
       scene.add(route.group);
       glass.setRoute(pts.map((p) => new THREE.Vector3(p.x, 0, p.z)), groundAt);
+      vrWorld.setRoute(pts, groundAt);
       guidePoints = routePoints;
     };
     // Solid things cast sun shadows (glowing or see-through ones don't).
@@ -1014,13 +1042,16 @@ export function Preview() {
     let vrCompass: VRHudModel['compass'] = null;
     const vrHud = (): VRHudModel => {
       const outdoors = modeRef.current === 'eva', web = vrRef.current;
-      const prompt = outdoors ? null : lastPrompt.replace(/^E ·/, 'A ·').replace(/^Click · use the console/, 'Console: plan outside VR (a plan is set)') || null;
+      const prompt = outdoors ? null : vrConsole.open ? 'Point at the screen · A or trigger to click' : lastPrompt.replace(/^(E|Click) ·/, 'A ·') || null;
       const empty = { label: '', value: '', fraction: 0 };
       return { objectives: { done: 0, total: 0 }, alert: null, o2: empty, temperature: empty, ...web, outdoors, compass: outdoors ? vrCompass : null, prompt };
     };
     // Desktop: through the visor lens (a post-process). Headset: straight to the eyes (post-processing breaks WebXR).
     const draw = (scn: THREE.Scene, eye: number) => {
-      if (xr.presenting) xr.render(scn, camera, eye, vrHud());
+      if (xr.presenting) {
+        vrWorld.place(xr.head, scn);
+        xr.render(scn, camera, eye, vrHud());
+      }
       else if (scn === scene) lens.render(scene, camera);
       else renderer.render(scn, camera);
     };
@@ -1088,6 +1119,13 @@ export function Preview() {
           }
         }
         room.update(time);
+        if (xr.presenting) {
+          // Headset: the console on the monitor (closes when you walk away), and the aiming dot.
+          if (vrConsole.open && (modeRef.current !== 'base' || camera.position.distanceTo(room.standAtConsole.position) > 2.5)) openVRConsole(false);
+          const plan = vrConsoleRef.current;
+          if (vrConsole.open && plan) vrConsole.update({ ...plan, options: { outline, topology: topologyOn, sound: !audio.muted } });
+          vrWorld.update({ outdoors: false, fog: 0, reticle: !vrConsole.open, target: null, glass: false, me: camera.position, dt: realDt }, renderer.xr.getBaseLayer() as XRWebGLLayer | null);
+        }
         draw(room.scene, ROOM_EYE);
         return;
       }
@@ -1247,7 +1285,17 @@ export function Preview() {
       }
       // AR objective marker: projected onto the glass over the next objective (or the airlock on the way home)
       const targetEl = targetRef.current;
-      if (targetEl) {
+      let vrTarget: { at: THREE.Vector3; label: string } | null = null;
+      {
+        const ni = homeBound ? -1 : nextObjective();
+        const next = ni >= 0 ? tasks[ni] : null;
+        const pos = next ? next.anchor : base ? base.door : null;
+        if (pos && active < 0) {
+          const dist = Math.round(Math.hypot(pos.x - camera.position.x, pos.z - camera.position.z));
+          vrTarget = { at: pos, label: `${next ? next.title.toUpperCase() : 'BASE AIRLOCK'} · ${dist} M` }; // the same marker in the headset
+        }
+      }
+      if (targetEl && !xr.presenting) {
         const ni = homeBound ? -1 : nextObjective();
         const next = ni >= 0 ? tasks[ni] : null;
         const pos = next ? next.anchor : base ? base.door : null;
@@ -1312,6 +1360,7 @@ export function Preview() {
       if (breathPhase >= 1) {
         breathPhase -= 1;
         audio.breath(Math.max(effort / 2, fog));
+        if (!reducedMotion) vrWorld.breathe(Math.max(effort / 2, fog));
         if (!reducedMotion)
           breathRef.current?.animate(
             [
@@ -1342,8 +1391,13 @@ export function Preview() {
       } else lastShot = -1;
 
       // Path outline: 3D arrows in world mode (hidden while you work), or drawn on the glass.
-      if (route) route.group.visible = outline === 'world' && active < 0; // (always 'world' in the headset)
-      if (outline === 'glass') glass.update(camera, lens.toScreen, host.clientWidth, host.clientHeight);
+      if (route) route.group.visible = outline === 'world' && active < 0;
+      if (outline === 'glass' && !xr.presenting) glass.update(camera, lens.toScreen, host.clientWidth, host.clientHeight);
+      if (xr.presenting)
+        vrWorld.update(
+          { outdoors: true, fog, reticle: false, target: vrTarget, glass: outline === 'glass' && active < 0, me: camera.position, dt: realDt },
+          renderer.xr.getBaseLayer() as XRWebGLLayer | null,
+        );
       rocks?.update(camera.position.x, camera.position.z);
       shadows?.update(camera.position, u.uSunDir.value);
 
@@ -1384,6 +1438,8 @@ export function Preview() {
       terrain?.geometry.dispose();
       material.dispose();
       lens.dispose();
+      vrConsole.dispose();
+      vrWorld.dispose();
       xr.dispose();
       vrButton?.remove();
       compass.element.remove();
@@ -1497,6 +1553,7 @@ export function Preview() {
     : !tour ? 'No walkable route for this plan'
     : planError ? planError
     : !planFits ? 'The plan does not fit: check O₂ and time at the console' : null;
+  vrConsoleRef.current = { missions, chosen: chosen.map((c, i) => c && !objDone[i]), levels, heights: heightsLoaded, route: setupRoute, routeTo, base: door, ready: !launchWhy, why: launchWhy };
   const beginEva = () => {
     setSecondsLeft(EVA_MINUTES * 60);
     setObjSpent((prev) => prev.map((v, i) => (objDone[i] ? v : 0)));

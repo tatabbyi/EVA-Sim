@@ -50,7 +50,7 @@ export interface SetupConsoleProps {
   onClose(): void;
 }
 
-const MAP_W = 1200, MAP_H = 1000; // map drawing size (about the shape of the map area); scaled to fit like "cover"
+export const MAP_W = 1200, MAP_H = 1000; // map drawing size (about the shape of the map area); scaled to fit like "cover"
 
 /** A slope colour as it shows on the map: laid over the paper at this strength (CSS colour). */
 function washed(hex: string, alpha: number): string {
@@ -63,8 +63,8 @@ function hexRgb(hex: string): [number, number, number] {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-/** The map region: everything on the plan, padded, at least 480 m across, at the map's aspect. */
-function mapRegion(points: XZ[]) {
+/** The map region: everything on the plan, padded, at least 480 m across, at the map's aspect. (Also used by the VR console.) */
+export function mapRegion(points: XZ[]) {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const p of points) {
     x0 = Math.min(x0, p.x);
@@ -95,7 +95,7 @@ function mapRegion(points: XZ[]) {
 /** A clean topographic map: colour = walkability by slope (SLOPE_CLASSES, the same as on the ground outside),
  *  soft shading from the north-west, smooth contour lines for height.
  *  Returns the contour spacing in metres. */
-function drawMap(canvas: HTMLCanvasElement, grid: Grid<Float32Array>, r: ReturnType<typeof mapRegion>) {
+export function drawMap(canvas: HTMLCanvasElement, grid: Grid<Float32Array>, r: ReturnType<typeof mapRegion>) {
   canvas.width = MAP_W;
   canvas.height = MAP_H;
   const ctx = canvas.getContext('2d')!;

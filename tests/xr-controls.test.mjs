@@ -38,7 +38,7 @@ test('buttons: grip = faster, B/Y = fast-forward, A/X or trigger = action, left 
   assert.equal(readPads([pad('left', { pressed: [STICK_CLICK] })]).help, true);
   assert.equal(readPads([pad('right', { pressed: [STICK_CLICK] })]).help, false, 'only the left stick click opens help');
   const idle = readPads([pad('left'), pad('right')]);
-  assert.deepEqual(idle, { forward: 0, side: 0, turn: 0, run: false, fast: false, action: false, help: false });
+  assert.deepEqual(idle, { forward: 0, side: 0, turn: 0, run: false, fast: false, action: false, help: false, jump: false });
 });
 
 test('the first press closes the tutorial; after that one action per press, not per frame held', () => {
@@ -77,7 +77,16 @@ test('left stick click brings the tutorial back; the next press closes it withou
   assert.equal(s.tutorial, false);
 });
 
+test('right stick click jumps, once per click; the left stick click does not', () => {
+  const s = newPadState(), click = readPads([pad('right', { pressed: [STICK_CLICK] })]), none = readPads([pad('right')]);
+  assert.equal(stepPads(s, click).jump, true);
+  assert.equal(stepPads(s, click).jump, false, 'holding does not repeat');
+  stepPads(s, none);
+  assert.equal(stepPads(s, click).jump, true, 'again after letting go');
+  assert.equal(readPads([pad('left', { pressed: [STICK_CLICK] })]).jump, false, 'left click is the tutorial');
+});
+
 test('the tutorial names every control it maps', () => {
   const text = VR_TUTORIAL.map((l) => l.text).join('\n');
-  for (const word of ['Left stick', 'Grip', 'Right stick', 'A / X', 'trigger', 'B / Y', 'Click the left stick']) assert.match(text, new RegExp(word));
+  for (const word of ['Left stick', 'Grip', 'Right stick', 'A / X', 'trigger', 'B / Y', 'Click the right stick', 'jump', 'Console', 'laser', 'Click the left stick']) assert.match(text, new RegExp(word));
 });
