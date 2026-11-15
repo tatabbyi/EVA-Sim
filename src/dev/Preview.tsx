@@ -1094,9 +1094,10 @@ export function Preview() {
           }
           room.collide(camera.position);
           camera.position.y = ROOM_EYE;
-          const looking = controls.isLocked ? room.aim(camera) : null;
-          const prompt = !controls.isLocked
-            ? 'Click to look around · WASD to walk'
+          const looking = (controls.isLocked || !!touchControls) ? room.aim(camera) : null;
+          const prompt = touchControls
+            ? looking === 'console' ? 'USE · open mission plan' : looking === 'hatch' ? 'USE · suit up and go out' : 'Drag to look · move with joystick'
+            : !controls.isLocked ? 'Click to look around · WASD to walk'
             : looking === 'console' ? 'Click · use the console' : looking === 'hatch' ? 'E · suit up and go out' : '';
           if (prompt !== lastPrompt && time > promptHoldUntil) {
             lastPrompt = prompt;

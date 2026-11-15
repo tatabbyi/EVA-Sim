@@ -16,7 +16,7 @@ interface TouchActions {
 
 export function createTouchControls(root: HTMLElement, actions: TouchActions): TouchControls | null {
   // A mouse-first desktop, including desktop Electron, remains unchanged.
-  if (!window.matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoints === 0) return null;
+  if (!window.matchMedia('(pointer: coarse)').matches && !(navigator.maxTouchPoints > 0)) return null;
 
   const overlay = document.createElement('div');
   overlay.className = 'touch-controls';
@@ -112,6 +112,11 @@ export function createTouchControls(root: HTMLElement, actions: TouchActions): T
       lastMode = mode;
       overlay.dataset.mode = mode;
       onBlur(); // Never carry movement from one scene mode into another.
+      if (mode !== 'eva') {
+        running = false;
+        runButton.setAttribute('aria-pressed', 'false');
+        runButton.classList.remove('is-active');
+      }
     },
     setPaused(paused) {
       const label = paused ? 'RESUME' : 'PAUSE';
